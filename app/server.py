@@ -8,6 +8,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from azure.core.exceptions import ClientAuthenticationError
 from azure.identity import AuthenticationRequiredError
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -147,16 +148,32 @@ def ask(req: Ask):
         if not rec or rec["status"] != "done":
             yield {"type": "error", "text": "That file isn't ready yet. Wait for processing to finish."}
             return
-        try:
-            # Never prompt from the server: a device code would only show up in the uvicorn log.
-            log = lambda model, u: usage.record(model, u, "chat", req.file_id, req.session)
-            yield from agent.ask(req.question, rec["db_path"], req.model, req.history, interactive=False,
-                                 context=_context(rec), on_usage=log)
-        except AuthenticationRequiredError:
-            yield {"type": "error", "text": "Your Azure sign-in has expired. Run `uv run python bench/llm.py` "
-                                            "in a terminal, sign in with the device code, then ask again."}
-        except Exception as e:
-            yield {"type": "error", "text": f"{type(e).__name__}: {e}"}
+        log = lambda model, u: usage.record(model, u, "chat", req.file_id, req.session)
+        for attempt in (1, 2):
+            started = False
+            try:
+                # Never prompt from the server: a device code would only show up in the uvicorn log.
+                for ev in agent.ask(req.question, rec["db_path"], req.model, req.history, interactive=False,
+                                    context=_context(rec), on_usage=log):
+                    started = True
+                    yield ev
+                return
+            except AuthenticationRequiredError:
+                yield {"type": "error", "text": "Your Azure sign-in has expired. Run `uv run python bench/llm.py` "
+                                                "in a terminal, sign in with the device code, then ask again."}
+                return
+            except ClientAuthenticationError as e:
+                # A long-running server can fail to refresh its cached token (e.g. the Keychain was locked
+                # while the Mac slept). Retry once with a fresh credential before giving up.
+                if attempt == 1 and not started:
+                    continue
+                yield {"type": "error", "text": "Couldn't refresh your Azure sign-in "
+                       f"({e.message or 'no details'}). Run `uv run python bench/llm.py` in a terminal to "
+                       "sign in again, then restart the app and ask again."}
+                return
+            except Exception as e:
+                yield {"type": "error", "text": f"{type(e).__name__}: {e}"}
+                return
 
     # agent.ask blocks on network calls, so run the generator in a worker thread.
     lines = iterate_in_threadpool(json.dumps(e) + "\n" for e in events())
