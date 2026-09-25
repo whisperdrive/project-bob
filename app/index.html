@@ -168,11 +168,6 @@ textarea { flex: 1; resize: none; min-height: 44px; max-height: 180px; padding: 
 .chart-tools button { background: none; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; color: var(--muted); }
 .chart-tools button:hover, .chart-tools button.on { color: var(--ink); border-color: var(--muted); }
 .chart-tools .src { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
-.chart-card.reviewing .chart-box, .chart-card.reviewing .chart-tools, .chart-card.reviewing h4, .chart-card.reviewing .sub { visibility: hidden; }
-.chart-card { position: relative; }
-.review-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
-  color: var(--muted); font-size: 13px; }
-.chart-card:not(.reviewing) .review-wait { display: none; }
 .chart-note { font-size: 13px; color: var(--ink); margin: 8px 0 0; max-width: 75ch; }
 details.review { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 details.review summary { cursor: pointer; }
@@ -591,8 +586,6 @@ function renderAsk() {
       <div class="chips" id="examples">${[...EXAMPLES, "Chart the valuation cash flows over time."].filter(q => d.diff || !q.startsWith("Explain")).map(q => `<button type="button">${q}</button>`).join("")}</div></div>`}
   </div></div>`;
   mountCharts($("#thread"));
-  // charts saved while their review was still running: review them now
-  if (chat) $("#thread").querySelectorAll(".chart-card.reviewing").forEach(c => reviewChart(c, "", d.id, chat));
   const nc = $("#new-chat"); if (nc) nc.onclick = () => { chats.delete(d.id); renderAsk(); updateUsageChip(); };
   const ex = $("#examples"); if (ex) ex.onclick = e => { if (e.target.tagName === "BUTTON") ask(e.target.textContent); };
   const q = $("#question"), form = $("#ask-form");
@@ -632,9 +625,10 @@ async function ask(text) {
     } else if (e.type === "waiting") {
       label.textContent = `Waiting ${e.seconds}s to stay under ${e.model}'s rate limit (${fmtN(e.tpm_budget)} tokens / ${fmtN(e.rpm_budget)} requests a minute)…`;
       steps.insertAdjacentHTML("beforeend", `<div class="step muted">Paused ${e.seconds}s: ${esc(e.model)} is near its per-minute budget (limit minus a safety margin).</div>`);
+    } else if (e.type === "chart_review") {
+      label.textContent = `Checking the chart “${e.title || ""}” before showing it…`;
     } else if (e.type === "chart") {
-      const card = chartCard(e.spec); card.classList.add("reviewing"); a.append(card); mountCharts(a);
-      reviewChart(card, text, fid, chat);
+      const card = chartCard(e.spec); a.append(card); mountCharts(a);
     } else if (e.type === "error") a.insertAdjacentHTML("beforeend", `<div class="error">${esc(e.text)}</div>`);
     if (detail?.id === fid) scrollDown();
   };
@@ -675,7 +669,6 @@ function chartCard(spec) {
       <button type="button" data-act="copy">Copy data</button><button type="button" data-act="reset">Full range</button>
       <span class="src">Source ${refs}</span></div>
     <div class="review-slot"></div>
-    <div class="review-wait"><span class="pulse"></span>Drawing the chart and checking it before showing it…</div>
     <script type="application/json">${JSON.stringify(spec).replace(/</g, "\\u003c")}<\/script>`;
   return card;
 }
@@ -714,7 +707,6 @@ function mountCharts(root) {
       spec.kind = kind;
       card.querySelectorAll("[data-kind]").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
     };
-    if (spec.review) card.classList.remove("reviewing");
     renderReview(card);
     // Click a point to zoom into the 20 periods around it; Reset zoom goes back to the full range.
     function zoomTo(chart, els) {
@@ -754,34 +746,8 @@ async function copyText(text, btn, card) {
 }
 
 // ---------- chart review ----------
-// Before a chart is shown, send the rendered image to a vision model; it can only change presentation
-// (title, line/bar, visible window, y-axis range, a note), never the data.
-async function reviewChart(card, question, fid, chat) {
-  const spec = card._spec;
-  let res;
-  try {
-    const canvas = card.querySelector("canvas");
-    const out = document.createElement("canvas"); out.width = canvas.width; out.height = canvas.height;
-    const g = out.getContext("2d"); g.fillStyle = tok("--surface") || "#fff"; g.fillRect(0, 0, out.width, out.height);
-    g.drawImage(canvas, 0, 0);
-    const r = await fetch("/api/chart/review", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec, image: out.toDataURL("image/png"), question, file_id: fid, session: chat.session }) });
-    res = await r.json();
-  } catch (e) { res = { verdict: "skipped", issues: ["Review unavailable: " + e.message], changes: {} }; }
-  const ch = res.changes || {};
-  if (ch.title) spec.title = ch.title;
-  if (ch.note) spec.note = ch.note;
-  spec.view = { x_start: ch.x_start, x_end: ch.x_end, y_min: ch.y_min, y_max: ch.y_max };
-  spec.review = { verdict: res.verdict, issues: res.issues || [], changed: Object.keys(ch), model: res.model };
-  card.querySelector('script[type="application/json"]').textContent = JSON.stringify(spec).replace(/</g, "\\u003c");
-  card.querySelector("h4").textContent = spec.title;
-  card._draw(ch.kind || spec.kind || "line");
-  renderReview(card);
-  card.classList.remove("reviewing");
-  const thread = card.closest(".thread");  // keep the saved chat in step with the reviewed chart
-  if (thread && card.isConnected && detail?.id === fid) chat.html = thread.innerHTML;
-  if (detail?.id === fid) scrollDown();
-}
+// Charts arrive already reviewed: the server renders each one to PNG, a vision model checks it and may
+// change the presentation (title, type, visible window, y-axis range, note). This shows what it changed.
 function renderReview(card) {
   const spec = card._spec, rv = spec.review, slot = card.querySelector(".review-slot");
   if (!slot) return;

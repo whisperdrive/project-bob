@@ -51,11 +51,13 @@ The chat (Ask tab) gets the confirmed target, valuation date and change summary 
 chosen by the model on Azure but run locally (`agent._run_tool` against model.db); only their text results
 are sent back. The `chart` tool takes cell ranges, reads the exact values locally and the page draws them
 with Chart.js (hover, line/bar, click-to-zoom, copy data); the model only sees a first/last/min/max summary.
-Before a chart is shown it's reviewed: the browser renders it hidden, sends the image plus an exact data
-summary to a vision model (`bench/chartreview.py`, gpt-4o), and applies the suggested presentation fixes
-(title, line/bar, visible window, y-axis range, a note, e.g. for an outlier that flattens the trend). The
-data itself can't be changed; "Full range" undoes the framing. "Copy data" falls back to a selectable panel
-where the browser blocks clipboard access.
+Before a chart is shown it's reviewed on the server: `bench/chartrender.py` draws it to PNG with matplotlib (no
+browser), a vision model (`bench/chartreview.py`, gpt-4o) checks the image against an exact data summary and
+suggests presentation fixes (title, line/bar, visible window, y-axis range, a note, e.g. for an outlier that
+flattens the trend), and it looks once more at the re-rendered result. Titles naming years outside the visible
+range are corrected in code. The data can't be changed; "Full range" undoes the framing, and the chat model is
+told what was changed so its answer matches. `find` ignores spaces and punctuation ("cash flow" finds
+"Cashflow"). "Copy data" falls back to a selectable panel where the browser blocks clipboard access.
 
 Token usage: every model call (chat, identify, change summary) is logged to the `usage` table in
 `out/registry.db` (`bench/usage.py`). The header shows this chat and all-time totals; click it for totals by

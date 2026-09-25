@@ -42,8 +42,18 @@ def _path() -> str:
     return path
 
 
+_SQUASH = re.compile(r"[\s\-_./&()']+")
+
+
+def _squash(text) -> str:
+    """Lower-case text with spaces and common punctuation removed ("Cash-flow (ex. hist)" -> "cashflowexhist")."""
+    return _SQUASH.sub("", str(text).lower()) if text is not None else ""
+
+
 def _db() -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{_path()}?mode=ro", uri=True)
+    db = sqlite3.connect(f"file:{_path()}?mode=ro", uri=True)
+    db.create_function("squash", 1, _squash, deterministic=True)
+    return db
 
 
 def _label(db, sheet: str, row: int) -> str:
@@ -76,10 +86,13 @@ def overview() -> str:
 
 
 def find(text: str, sheet: str | None = None, limit: int = 25) -> str:
-    """Line items whose label or section contains text (case-insensitive)."""
+    """Line items whose label or section contains text (case-insensitive; spaces and punctuation ignored,
+    so "cash flow" also finds "Cashflow")."""
     db = _db()
-    q = "SELECT sheet,row,section,label,units,samples FROM rows WHERE (label LIKE ? OR section LIKE ?)"
-    args: list = [f"%{text}%", f"%{text}%"]
+    q = ("SELECT sheet,row,section,label,units,samples FROM rows WHERE (label LIKE ? OR section LIKE ? "
+         "OR squash(label) LIKE ? OR squash(section) LIKE ?)")
+    key = _squash(text)
+    args: list = [f"%{text}%", f"%{text}%", f"%{key}%", f"%{key}%"]
     if sheet:
         q += " AND sheet=?"
         args.append(sheet)

@@ -115,26 +115,6 @@ async def put_compare(fid: int, body: CompareWith):
     return library.get(fid, full=True)
 
 
-class ChartReview(BaseModel):
-    spec: dict
-    image: str  # data:image/png;base64,...
-    question: str = ""
-    file_id: int | None = None
-    session: str | None = None
-
-
-@app.post("/api/chart/review")
-async def chart_review(req: ChartReview):
-    import chartreview
-    if not req.image.startswith("data:image/"):
-        raise HTTPException(400, "image must be a data URL")
-    try:
-        return await run_in_threadpool(chartreview.review, req.spec, req.image, req.question, req.file_id,
-                                       req.session)
-    except Exception as e:  # the chart is still shown, just unreviewed
-        return {"verdict": "skipped", "issues": [f"Review unavailable: {type(e).__name__}"], "changes": {}}
-
-
 @app.get("/api/usage")
 def get_usage(session: str | None = None):
     import ratelimit
@@ -174,7 +154,8 @@ def ask(req: Ask):
             try:
                 # Never prompt from the server: a device code would only show up in the uvicorn log.
                 for ev in agent.ask(req.question, rec["db_path"], req.model, req.history, interactive=False,
-                                    context=_context(rec), on_usage=log):
+                                    context=_context(rec), on_usage=log, file_id=req.file_id,
+                                    session=req.session):
                     started = True
                     yield ev
                 return

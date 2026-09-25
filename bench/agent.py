@@ -8,6 +8,7 @@ ask() is a generator of events (dicts) so a UI can show each tool call as it hap
 import json
 
 import tools
+import chartreview
 import ratelimit
 from llm import client, create
 
@@ -91,7 +92,7 @@ def _run_tool(name: str, args: dict) -> str:
 
 
 def ask(question: str, db_path: str, model: str, history: list | None = None, interactive: bool = True,
-        context: str = "", on_usage=None):
+        context: str = "", on_usage=None, file_id: int | None = None, session: str | None = None):
     """history: earlier [{"role": "user"|"assistant", "content": str}] turns of this conversation.
     context: extra text for the instructions (e.g. confirmed target / valuation date, changes vs last version).
     on_usage(model, usage): called after every model response, so tokens are logged even if a later call fails."""
@@ -129,8 +130,16 @@ def ask(question: str, db_path: str, model: str, history: list | None = None, in
                 if c.name == "chart":
                     try:
                         spec = tools.chart(**args)
+                        # Review before showing: render on the server, vision-model check, apply fixes.
+                        yield {"type": "chart_review", "title": spec.get("title")}
+                        try:
+                            spec = chartreview.apply(spec, chartreview.review(
+                                spec, question, file_id, session, interactive))
+                        except Exception as e:
+                            spec["review"] = {"verdict": "skipped", "changed": [], "model": None,
+                                              "issues": [f"Review unavailable: {type(e).__name__}"]}
                         yield {"type": "chart", "spec": spec}
-                        out = tools.chart_note(spec)
+                        out = tools.chart_note(spec) + "\n" + chartreview.describe(spec)
                     except Exception as e:
                         out = f"error: {type(e).__name__}: {e}"
                 else:
