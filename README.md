@@ -51,6 +51,11 @@ The chat (Ask tab) gets the confirmed target, valuation date and change summary 
 chosen by the model on Azure but run locally (`agent._run_tool` against model.db); only their text results
 are sent back. The `chart` tool takes cell ranges, reads the exact values locally and the page draws them
 with Chart.js (hover, line/bar, click-to-zoom, copy data); the model only sees a first/last/min/max summary.
+Before a chart is shown it's reviewed: the browser renders it hidden, sends the image plus an exact data
+summary to a vision model (`bench/chartreview.py`, gpt-4o), and applies the suggested presentation fixes
+(title, line/bar, visible window, y-axis range, a note, e.g. for an outlier that flattens the trend). The
+data itself can't be changed; "Full range" undoes the framing. "Copy data" falls back to a selectable panel
+where the browser blocks clipboard access.
 
 Token usage: every model call (chat, identify, change summary) is logged to the `usage` table in
 `out/registry.db` (`bench/usage.py`). The header shows this chat and all-time totals; click it for totals by
