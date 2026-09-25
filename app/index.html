@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+:root {
+  --ground: #f4f6f4; --surface: #ffffff; --ink: #1b2320; --muted: #5d6a64; --rule: #d8ded9;
+  --accent: #1d6b47; --accent-ink: #ffffff; --accent-soft: #e3efe7; --ref-bg: #e3efe7; --ref-ink: #17563a;
+  --warn-bg: #fbeeea; --warn-ink: #8a2f1b; --amber-bg: #fbf1dc; --amber-ink: #7a5310; --code-bg: #eef1ee;
+  --up: #1d6b47; --down: #a33a22;
+  --s1: #1d6b47; --s2: #3f6fb0; --s3: #b7791f; --s4: #9b4d8f; --s5: #2f8f8f; --s6: #a33a22;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #111513; --surface: #181e1b; --ink: #e2e9e5; --muted: #93a39b; --rule: #2b3430;
+    --accent: #58bd8a; --accent-ink: #0d1a13; --accent-soft: #1d3328; --ref-bg: #1d3328; --ref-ink: #8fdcb2;
+    --warn-bg: #3a1f18; --warn-ink: #f2a58f; --amber-bg: #3a2e14; --amber-ink: #f0cb7e; --code-bg: #1f2622;
+    --up: #6fd09d; --down: #f08f78; color-scheme: dark;
+    --s1: #58bd8a; --s2: #7ea8e6; --s3: #e0b25c; --s4: #d18ac6; --s5: #6cc6c6; --s6: #f08f78;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #111513; --surface: #181e1b; --ink: #e2e9e5; --muted: #93a39b; --rule: #2b3430;
+  --accent: #58bd8a; --accent-ink: #0d1a13; --accent-soft: #1d3328; --ref-bg: #1d3328; --ref-ink: #8fdcb2;
+  --warn-bg: #3a1f18; --warn-ink: #f2a58f; --amber-bg: #3a2e14; --amber-ink: #f0cb7e; --code-bg: #1f2622;
+  --up: #6fd09d; --down: #f08f78; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 var(--sans);
+  display: flex; flex-direction: column; }
+select, textarea, button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ref { font: 12.5px var(--mono); background: var(--ref-bg); color: var(--ref-ink); padding: 1px 6px;
+  border-radius: 4px; white-space: nowrap; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 10px 20px;
+  border-bottom: 1px solid var(--rule); background: var(--surface); }
+header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+header h1 span { color: var(--muted); font-weight: 400; }
+label.field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; margin-left: auto; }
+select, input[type=text], input[type=date] { background: var(--ground); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 5px 8px; font-size: 14px; color: var(--ink); text-transform: none; letter-spacing: 0; }
+
+.layout { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+aside { border-right: 1px solid var(--rule); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.drop { margin: 14px; border: 1.5px dashed var(--rule); border-radius: 10px; padding: 16px; text-align: center;
+  color: var(--muted); font-size: 14px; cursor: pointer; transition: border-color .15s, background .15s; }
+.drop b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.files { flex: 1; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.group-h { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+  padding: 12px 8px 4px; }
+.fitem { text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.fitem:hover { background: var(--ground); }
+.fitem.sel { background: var(--accent-soft); border-color: var(--accent); }
+.fname { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; }
+.fmeta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.pill { font-size: 11px; border-radius: 999px; padding: 1px 8px; font-weight: 500; white-space: nowrap; }
+.pill.ok { background: var(--accent-soft); color: var(--ref-ink); }
+.pill.check { background: var(--amber-bg); color: var(--amber-ink); }
+.pill.bad { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.ver { background: var(--code-bg); color: var(--muted); }
+.bar { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+
+section.main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.fhead { padding: 16px 24px 0; background: var(--ground); }
+.fhead h2 { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; text-wrap: balance; }
+.tabs { display: flex; gap: 4px; margin-top: 12px; border-bottom: 1px solid var(--rule); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--muted);
+  font-weight: 500; margin-bottom: -1px; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs .count { font-size: 11px; background: var(--code-bg); border-radius: 999px; padding: 0 6px; margin-left: 4px; }
+.pane { flex: 1; overflow-y: auto; padding: 20px 24px 32px; min-height: 0; }
+.wrap { max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
+
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
+.card h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.ident { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.ident label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.ident input { font-size: 15px; padding: 7px 9px; width: 100%; }
+.ident .ev { font-size: 12px; min-height: 18px; }
+.ident-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.ident-foot p { margin: 0; font-size: 13px; color: var(--muted); flex: 1; min-width: 200px; }
+.btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 7px; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+.btn.ghost { background: none; color: var(--ink); border: 1px solid var(--rule); font-weight: 500; }
+.btn:disabled { opacity: .5; cursor: default; }
+.stats-row { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 13px; color: var(--muted); }
+.stats-row b { color: var(--ink); font-weight: 500; }
+details.more summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--rule); padding: 6px 8px; }
+td { border-bottom: 1px solid var(--rule); padding: 6px 8px; vertical-align: top; overflow-wrap: anywhere; }
+tr:last-child td { border-bottom: 0; }
+.scroll-x { overflow-x: auto; }
+.arrow { color: var(--muted); padding: 0 4px; }
+.chg-up { color: var(--up); } .chg-down { color: var(--down); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; }
+.tile b { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 12px; color: var(--muted); }
+.tile.zero b { color: var(--muted); font-weight: 400; }
+.callout { border-radius: 8px; padding: 12px 14px; font-size: 14px; }
+.callout.amber { background: var(--amber-bg); color: var(--amber-ink); }
+.callout.red { background: var(--warn-bg); color: var(--warn-ink); }
+.callout.green { background: var(--accent-soft); color: var(--ref-ink); }
+.md p, .md ul { margin: 6px 0; } .md li { margin: 3px 0; } .md h1, .md h2, .md h3 { font-size: 15px; margin: 8px 0 4px; }
+.md h1, .md h2, .md h3, .md h4 { text-transform: none; letter-spacing: 0; color: var(--ink); }
+.md code { font: 12.5px var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.cmp-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+/* chat */
+.thread { display: flex; flex-direction: column; gap: 24px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips button { background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+.chips button:hover { border-color: var(--accent); color: var(--accent); }
+.q { align-self: flex-end; max-width: 80%; background: var(--accent); color: var(--accent-ink);
+  padding: 10px 14px; border-radius: 12px 12px 2px 12px; white-space: pre-wrap; }
+.a { display: flex; flex-direction: column; gap: 10px; }
+details.work { border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); font-size: 13px; }
+details.work summary { cursor: pointer; padding: 8px 12px; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 8px; }
+details.work summary::-webkit-details-marker { display: none; }
+details.work summary::before { content: "▸"; transition: transform .15s; }
+details.work[open] summary::before { transform: rotate(90deg); }
+.steps { border-top: 1px solid var(--rule); padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.step .call { font-family: var(--mono); font-size: 12.5px; }
+.step .call b { color: var(--accent); font-weight: 500; }
+.step pre { margin: 4px 0 0; max-height: 180px; overflow: auto; background: var(--code-bg); padding: 8px 10px;
+  border-radius: 6px; font: 12px/1.45 var(--mono); color: var(--muted); white-space: pre; }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite alternate; flex: none; }
+@keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } .bar i { transition: none; } }
+.answer { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 4px 18px; overflow-x: auto; }
+.answer h1, .answer h2, .answer h3, .answer h4 { font-size: 16px; margin: 16px 0 6px; }
+.answer code { font: 13px var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.answer table { width: auto; }
+.chat-stats { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chat-stats b { color: var(--ink); font-weight: 500; }
+.error { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.composer { border-top: 1px solid var(--rule); background: var(--surface); padding: 12px 24px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+.composer form { max-width: 900px; display: flex; gap: 10px; align-items: flex-end; }
+textarea { flex: 1; resize: none; min-height: 44px; max-height: 180px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--ground); line-height: 1.45; }
+
+.chart-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px 12px; }
+.chart-card h4 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+.chart-card .sub { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.chart-box { position: relative; height: 300px; }
+.chart-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.chart-tools button { background: none; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; color: var(--muted); }
+.chart-tools button:hover, .chart-tools button.on { color: var(--ink); border-color: var(--muted); }
+.chart-tools .src { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
+.usage-chip { background: none; border: 1px solid var(--rule); border-radius: 999px; padding: 4px 12px; font-size: 13px;
+  color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.usage-chip b { color: var(--ink); font-weight: 500; }
+.usage-chip:hover { border-color: var(--muted); }
+label.field.after-chip { margin-left: 0; }
+dialog { border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); color: var(--ink); padding: 0;
+  width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+.dlg-head { display: flex; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--rule); background: var(--surface); position: sticky; top: 0; }
+.dlg-head h2 { margin: 0; font-size: 16px; }
+.dlg-head button { margin-left: auto; }
+.dlg-body { padding: 18px 20px 22px; display: flex; flex-direction: column; gap: 18px; }
+.new-chat { display: flex; justify-content: flex-end; }
+.toasts { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex;
+  flex-direction: column; gap: 8px; z-index: 10; max-width: min(420px, calc(100vw - 32px)); }
+.toast { background: var(--ink); color: var(--ground); border-radius: 8px; padding: 10px 14px; font-size: 14px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18); }
+
+@media (max-width: 820px) {
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  aside { border-right: 0; border-bottom: 1px solid var(--rule); max-height: 40vh; }
+  .ident { grid-template-columns: 1fr; }
+  .fhead, .pane, .composer { padding-inline: 16px; }
+  label.field { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Model Desk <span>· valuation workbooks</span></h1>
+  <button class="usage-chip" type="button" id="usage-chip" title="Token usage">Tokens: …</button>
+  <label class="field after-chip" for="model">Chat model <select id="model"></select></label>
+</header>
+<dialog id="usage-dlg" aria-labelledby="usage-title">
+  <div class="dlg-head"><h2 id="usage-title">Token usage</h2><button class="btn ghost" type="button" id="usage-close">Close</button></div>
+  <div class="dlg-body" id="usage-body"></div>
+</dialog>
+<div class="layout">
+  <aside>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload workbooks">
+      <b>Drop workbooks here</b>or click to choose .xlsx / .xlsm files
+      <input type="file" id="picker" accept=".xlsx,.xlsm,.xlsb,.xls" multiple hidden>
+    </div>
+    <div class="files" id="files"></div>
+  </aside>
+  <section class="main" id="main">
+    <div class="pane"><div class="empty" id="nofile">Upload a workbook, or pick one on the left.</div></div>
+  </section>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<template id="tpl-file">
+  <div class="fhead">
+    <h2 id="f-title"></h2>
+    <div class="fmeta" id="f-sub"></div>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="overview">Overview</button>
+      <button type="button" data-tab="changes">Changes<span class="count" id="chg-count" hidden></span></button>
+      <button type="button" data-tab="ask">Ask</button>
+    </nav>
+  </div>
+  <div class="pane" id="pane"></div>
+  <div class="composer" id="composer" hidden>
+    <form id="ask-form">
+      <textarea id="question" rows="1" placeholder="Ask a question about this workbook…"></textarea>
+      <button class="btn" id="send" type="submit">Ask</button>
+    </form>
+  </div>
+</template>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtN = n => Number(n).toLocaleString();
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} };
+const fmtDate = d => { if (!d) return null; const t = new Date(d + "T00:00:00"); return isNaN(t) ? d : t.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); };
+const ago = ts => { const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : new Date(ts * 1000).toLocaleDateString(); };
+const mb = b => b < 1e6 ? Math.max(1, Math.round(b / 1e3)) + " KB" : (b / 1e6).toFixed(1) + " MB";
+
+let files = [], selId = Number(store("sel")) || null, tab = store("tab") || "overview", detail = null;
+const uploads = new Map();       // local id -> {name, pct, step}
+const chats = new Map();         // file id -> {history, html}
+const seenDone = new Set();
+
+function toast(msg, ms = 6000) {
+  const t = document.createElement("div"); t.className = "toast"; t.innerHTML = msg;
+  $("#toasts").append(t); setTimeout(() => t.remove(), ms);
+}
+
+// ---------- file list ----------
+async function loadFiles() {
+  files = await (await fetch("/api/files")).json();
+  for (const f of files) {
+    if (f.status === "done" && !seenDone.has(f.id)) {
+      if (seenDone.size && seenDone.has(-f.id)) {  // was processing in this session: announce it
+        toast(f.previous_id ? `<b>${esc(f.filename)}</b> is processed. It's a new version, so its changes are ready.`
+                            : `<b>${esc(f.filename)}</b> is processed.`);
+        if (f.id === selId) { tab = f.previous_id ? "changes" : "overview"; openFile(f.id); }
+        updateUsageChip();
+      }
+      seenDone.add(f.id);
+    } else if (f.status !== "done") seenDone.add(-f.id);
+  }
+  renderList();
+  if (selId && !files.some(f => f.id === selId)) selId = null;
+  if (!detail && selId) openFile(selId);
+  else if (!selId && files.length && !detail) openFile(files[0].id);
+  else if (detail && selId) {
+    const f = files.find(x => x.id === selId);
+    if (f && f.status !== "done") renderProcessing(f);
+  }
+  const busy = files.some(f => f.status === "queued" || f.status === "processing");
+  clearTimeout(loadFiles.t); loadFiles.t = setTimeout(loadFiles, busy || uploads.size ? 1000 : 15000);
+}
+
+function groupKey(f) { return f.target_name || "Target not identified"; }
+
+function renderList() {
+  const el = $("#files"); el.innerHTML = "";
+  for (const [id, u] of uploads) {
+    el.insertAdjacentHTML("beforeend", `<div class="fitem"><span class="fname">${esc(u.name)}</span>
+      <span class="fmeta">${esc(u.step)}</span><div class="bar"><i style="width:${Math.round(u.pct * 100)}%"></i></div></div>`);
+  }
+  const groups = new Map();
+  for (const f of files) { const k = groupKey(f); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); }
+  for (const [k, list] of groups) {
+    list.sort((a, b) => (b.valuation_date || "").localeCompare(a.valuation_date || "") || b.uploaded_at - a.uploaded_at);
+    el.insertAdjacentHTML("beforeend", `<div class="group-h">${esc(k)}</div>`);
+    const n = list.length;
+    list.forEach((f, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "fitem" + (f.id === selId ? " sel" : "");
+      let meta = "";
+      if (f.status === "done") {
+        meta += f.valuation_date ? `<span class="num">Val. date ${esc(fmtDate(f.valuation_date))}</span>` : `<span>No valuation date found</span>`;
+        meta += f.identity_confirmed ? `<span class="pill ok">Confirmed</span>` : `<span class="pill check">Check</span>`;
+        if (n > 1) meta += `<span class="pill ver">v${n - i}</span>`;
+        if (f.n_warnings) meta += `<span class="pill bad">${f.n_warnings === 1 ? "1 warning" : f.n_warnings + " warnings"}</span>`;
+      } else if (f.status === "error") meta = `<span class="pill bad">Failed</span>`;
+      else meta = `<span>${esc(f.step)}</span>`;
+      b.innerHTML = `<span class="fname">${esc(f.filename)}</span><span class="fmeta">${meta}</span>` +
+        (f.status === "processing" || f.status === "queued" ? `<div class="bar"><i style="width:${Math.round(f.pct * 100)}%"></i></div>` : "");
+      b.onclick = () => { openFile(f.id); };
+      el.append(b);
+    });
+  }
+  if (!files.length && !uploads.size) el.innerHTML = `<p class="muted" style="padding:8px 10px;font-size:13px">No workbooks yet.</p>`;
+}
+
+// ---------- upload ----------
+const drop = $("#drop"), picker = $("#picker");
+drop.onclick = () => picker.click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } };
+picker.onchange = () => { [...picker.files].forEach(uploadFile); picker.value = ""; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); [...e.dataTransfer.files].forEach(uploadFile); };
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => { if (!drop.contains(e.target)) { e.preventDefault(); [...e.dataTransfer.files].forEach(uploadFile); } });
+
+async function sha256(file) {
+  const buf = await file.arrayBuffer();
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function uploadFile(file) {
+  const key = Math.random();
+  const setU = (pct, step) => { uploads.set(key, { name: file.name, pct, step }); renderList(); };
+  if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
+    toast(`<b>${esc(file.name)}</b> can't be read: formulas are only readable from .xlsx and .xlsm. Save a copy as .xlsm in Excel and upload that.`, 9000);
+    return;
+  }
+  setU(0, "Checking if we've seen this file…");
+  try {
+    const sha = await sha256(file);
+    const { file: known } = await (await fetch("/api/files/check?sha=" + sha)).json();
+    if (known) {
+      uploads.delete(key);
+      toast(`<b>${esc(file.name)}</b> was already processed${known.filename !== file.name ? ` as ${esc(known.filename)}` : ""} (${ago(known.uploaded_at)}). Not processed again.`, 8000);
+      openFile(known.id); loadFiles(); return;
+    }
+    const res = await new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest(); const fd = new FormData(); fd.append("file", file);
+      x.upload.onprogress = e => e.lengthComputable && setU(e.loaded / e.total, `Uploading ${Math.round(100 * e.loaded / e.total)}%`);
+      x.onload = () => x.status < 300 ? resolve(JSON.parse(x.responseText)) : reject(new Error(JSON.parse(x.responseText).detail || x.statusText));
+      x.onerror = () => reject(new Error("upload failed; is the server running?"));
+      x.open("POST", "/api/files"); x.send(fd);
+    });
+    uploads.delete(key);
+    if (res.status === "duplicate") toast(`<b>${esc(file.name)}</b> was already processed as ${esc(res.file.filename)}. Not processed again.`);
+    seenDone.add(-res.file.id);
+    tab = "overview"; await loadFiles(); openFile(res.file.id);
+  } catch (e) {
+    uploads.delete(key); renderList();
+    toast(`<b>${esc(file.name)}</b>: ${esc(e.message)}`, 9000);
+  }
+}
+
+// ---------- file view ----------
+function mountFile() {
+  const main = $("#main"); main.innerHTML = ""; main.append($("#tpl-file").content.cloneNode(true));
+  $("#tabs").onclick = e => { const b = e.target.closest("button[data-tab]"); if (b) { tab = b.dataset.tab; store("tab", tab); renderTab(); } };
+}
+
+async function openFile(id) {
+  selId = id; store("sel", id); renderList();
+  const f = files.find(x => x.id === id);
+  mountFile();
+  if (f && f.status !== "done") { detail = f; renderProcessing(f); return; }
+  detail = await (await fetch("/api/files/" + id)).json();
+  if (detail.id !== selId) return;
+  renderHead(); renderTab(); updateUsageChip();
+}
+
+function renderHead() {
+  const d = detail;
+  $("#f-title").textContent = d.filename;
+  $("#f-sub").innerHTML = [d.target_name && `<span>${esc(d.target_name)}</span>`, d.valuation_date && `<span class="num">valued as at ${esc(fmtDate(d.valuation_date))}</span>`,
+    `<span>${mb(d.size)}</span>`, `<span>uploaded ${ago(d.uploaded_at)}</span>`].filter(Boolean).join(" · ");
+  const CHANGE_KEYS = ["line_items_added", "line_items_removed", "line_items_renamed", "formula_rows_changed",
+    "inputs_changed", "formula_vs_hardcode", "calculated_cells_changed", "names_changed"];
+  const n = d.diff ? CHANGE_KEYS.reduce((a, k) => a + (d.diff.counts[k] || 0), 0) : 0;
+  const c = $("#chg-count"); c.hidden = !d.diff; c.textContent = d.diff ? (d.diff.identical_content && !Object.keys(d.diff.identity).length ? "none" : fmtN(n)) : "";
+}
+
+function renderProcessing(f) {
+  if (!$("#f-title")) mountFile();
+  $("#f-title").textContent = f.filename;
+  $("#f-sub").textContent = f.status === "error" ? "Processing failed" : "Processing…";
+  $("#tabs").hidden = true; $("#composer").hidden = true;
+  const stages = [["Reading sheets", 0, .8], ["Identifying target and valuation date", .8, .9], ["Comparing with the previous version", .9, 1]];
+  $("#pane").innerHTML = `<div class="wrap"><div class="card"><h3>${f.status === "error" ? "Failed" : "Processing"}</h3>
+    ${f.status === "error" ? `<div class="callout red">${esc(f.error)}</div>` : `
+    <div class="bar" style="height:8px"><i style="width:${Math.round(f.pct * 100)}%"></i></div>
+    <p style="margin:10px 0 14px" class="num"><b>${Math.round(f.pct * 100)}%</b> · ${esc(f.step)}</p>
+    <table><tbody>${stages.map(([s, lo, hi]) => `<tr><td>${f.pct >= hi ? "✓" : f.pct >= lo ? '<span class="pulse" style="display:inline-block"></span>' : "·"}</td>
+      <td class="${f.pct < lo ? "muted" : ""}">${s}</td></tr>`).join("")}</tbody></table>`}
+  </div></div>`;
+}
+
+function renderTab() {
+  if (!detail || detail.status !== "done") return;
+  $("#tabs").hidden = false;
+  for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+  $("#composer").hidden = tab !== "ask";
+  ({ overview: renderOverview, changes: renderChanges, ask: renderAsk })[tab]();
+}
+
+// ---- overview ----
+function renderOverview() {
+  const d = detail, id = d.identity || {};
+  const ev = r => r ? `from <span class="ref">${esc(r)}</span>` : "";
+  const cands = id.candidates || {};
+  const candRows = [...(cands.valuation_date || []).map(c => ["Valuation date", c]), ...(cands.target || []).slice(0, 20).map(c => ["Name", c])];
+  $("#pane").innerHTML = `<div class="wrap">
+    <div class="card">
+      <h3>What this workbook values</h3>
+      ${d.identity_confirmed ? "" : `<div class="callout amber" style="margin-bottom:14px">Check these before relying on them.
+        They were ${id.method === "rules" ? "picked by rules" : "picked by " + esc(id.method || "the model")} from cells in the workbook
+        (confidence: ${esc(id.confidence || "unknown")}). Edit anything that's wrong, then confirm.</div>`}
+      <form id="ident-form">
+        <div class="ident">
+          <label>Target (company or asset)<input type="text" id="i-target" value="${esc(d.target_name)}" placeholder="Not found">
+            <span class="ev">${ev(id.target_evidence)}</span></label>
+          <label>Project / code name<input type="text" id="i-project" value="${esc(d.project_name)}" placeholder="None">
+            <span class="ev"></span></label>
+          <label>Valuation date<input type="date" id="i-date" value="${esc(d.valuation_date || "")}">
+            <span class="ev">${ev(id.valuation_date_evidence)}</span></label>
+        </div>
+        <div class="ident-foot">
+          <p>${esc(id.notes || "")}</p>
+          <button class="btn" type="submit" id="i-save">${d.identity_confirmed ? "Save changes" : "Confirm"}</button>
+        </div>
+      </form>
+      ${candRows.length ? `<details class="more" style="margin-top:10px"><summary>Cells it considered (${candRows.length})</summary>
+        <div class="scroll-x"><table style="margin-top:8px"><thead><tr><th>For</th><th>Value</th><th>Cell</th><th>Why</th></tr></thead><tbody>
+        ${candRows.map(([k, c]) => `<tr><td>${k}</td><td>${esc(c.value)}</td><td><span class="ref">${esc(c.where)}</span></td><td class="muted">${esc(c.why)}</td></tr>`).join("")}
+        </tbody></table></div></details>` : ""}
+    </div>
+    <div class="card">
+      <h3>Processing</h3>
+      <div class="stats-row">
+        <span><b>${d.sheets ?? "?"}</b> sheets</span><span><b>${fmtN(d.line_items ?? 0)}</b> line items</span>
+        ${d.build_secs ? `<span>built in <b>${d.build_secs}s</b></span>` : ""}
+        <span>${mb(d.size)}</span><span>fingerprint <span class="ref">${d.sha256.slice(0, 12)}</span></span>
+        <span>${d.previous_id ? `new version of <b>${esc(d.diff?.previous?.filename)}</b>` : "first version seen for this target"}</span>
+      </div>
+      <div id="rm-box" style="margin-top:14px"><button class="btn ghost" type="button" id="rm">Remove this file</button></div>
+    </div>
+  </div>`;
+  $("#rm").onclick = () => {
+    $("#rm-box").innerHTML = `<div class="cmp-row"><span>Remove <b>${esc(d.filename)}</b> and its processed data? The original file on your computer isn't touched.</span>
+      <button class="btn" type="button" id="rm-yes">Remove</button><button class="btn ghost" type="button" id="rm-no">Cancel</button></div>`;
+    $("#rm-no").onclick = () => renderOverview();
+    $("#rm-yes").onclick = async () => {
+      const r = await fetch("/api/files/" + d.id, { method: "DELETE" });
+      if (!r.ok) { toast(esc((await r.json()).detail)); return; }
+      toast(`Removed <b>${esc(d.filename)}</b>.`); detail = null; selId = null; store("sel", "");
+      $("#main").innerHTML = `<div class="pane"><div class="empty">Upload a workbook, or pick one on the left.</div></div>`;
+      loadFiles();
+    };
+  };
+  $("#ident-form").onsubmit = async e => {
+    e.preventDefault(); const b = $("#i-save"); b.disabled = true; b.textContent = "Saving…";
+    const r = await fetch(`/api/files/${d.id}/identity`, { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_name: $("#i-target").value.trim(), project_name: $("#i-project").value.trim(), valuation_date: $("#i-date").value }) });
+    detail = await r.json(); toast("Saved. Target and valuation date are confirmed."); await loadFiles(); renderHead(); renderTab();
+  };
+}
+
+// ---- changes ----
+const isNum = v => v !== null && v !== "" && !isNaN(Number(v));
+function val(v, units) {
+  if (v === null || v === undefined || v === "") return `<span class="muted">empty</span>`;
+  if (isNum(v)) { const n = Number(v); const pct = units === "%" && Math.abs(n) < 5;
+    return esc(pct ? (n * 100).toLocaleString(undefined, { maximumFractionDigits: 3 }) + "%" : n.toLocaleString(undefined, { maximumFractionDigits: Math.abs(n) < 10 ? 4 : 2 })); }
+  return esc(String(v).replace(/ 00:00:00$/, ""));
+}
+function change(o, n, units) { return `${val(o, units)}<span class="arrow">→</span>${val(n, units)}`; }
+function pctCell(p) { return p == null ? "" : `<span class="${p >= 0 ? "chg-up" : "chg-down"}">${p >= 0 ? "+" : ""}${p.toLocaleString(undefined, { maximumFractionDigits: 2 })}%</span>`; }
+function tableOf(rows, cols) {
+  return `<div class="scroll-x"><table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function more(total, shown) { return total > shown ? `<p class="muted" style="font-size:13px;margin:8px 0 0">Showing ${shown} of ${fmtN(total)}.</p>` : ""; }
+
+function renderChanges() {
+  const d = detail, x = d.diff;
+  const others = files.filter(f => f.id !== d.id && f.status === "done");
+  const picker = `<div class="cmp-row"><span>Compared with</span><select id="cmp">
+      <option value="">Nothing (first version)</option>
+      ${others.map(f => `<option value="${f.id}" ${f.id === d.previous_id ? "selected" : ""}>${esc(f.filename)}${f.valuation_date ? " · " + esc(fmtDate(f.valuation_date)) : ""}</option>`).join("")}
+    </select><span class="muted" style="font-size:13px">${d.previous_id ? "Picked automatically: the latest earlier file for the same target." : ""}</span></div>`;
+  if (!x) {
+    $("#pane").innerHTML = `<div class="wrap">${picker}<div class="card"><p style="margin:0">This is the first version of
+      <b>${esc(d.target_name || d.filename)}</b> we've seen, so there's nothing to compare yet. Upload a later version and its changes show up here.
+      You can also compare with any other file using the menu above.</p></div></div>`;
+    bindCmp(); return;
+  }
+  const c = x.counts, idc = x.identity || {};
+  const tiles = [["Inputs changed", c.inputs_changed], ["Calculated cells moved", c.calculated_cells_changed], ...(c.calculated_now_blank ? [["Now blank (not calculated)", c.calculated_now_blank]] : []),
+    ["Formula rows changed", c.formula_rows_changed], ["Hard-coded ↔ formula", c.formula_vs_hardcode],
+    ["Line items added", c.line_items_added], ["Line items removed", c.line_items_removed], ["Line items renamed", c.line_items_renamed],
+    ["Named ranges changed", c.names_changed]];
+  const labels = { target_name: "Target", project_name: "Project", valuation_date: "Valuation date" };
+  const identHtml = Object.keys(idc).length ? `<div class="callout amber"><b>Identity changed.</b> ${Object.entries(idc).map(([k, v]) =>
+      `${labels[k]}: ${esc(k === "valuation_date" ? fmtDate(v.old) : v.old) || "none"} → <b>${esc(k === "valuation_date" ? fmtDate(v.new) : v.new) || "none"}</b>`).join("; ")}</div>`
+    : (x.warnings || []).some(w => /valuation date/i.test(w)) ? ""
+    : d.target_name || d.valuation_date
+      ? `<div class="callout green">Same target and valuation date as the previous version (${esc(d.target_name || "target not found")}, ${esc(fmtDate(d.valuation_date) || "date not found")}).</div>`
+      : `<div class="callout amber">No target or valuation date was found in either version. Add them on the Overview tab.</div>`;
+  const s = x.sheets;
+  const sheetBits = [s.added.length && `Added: ${s.added.map(esc).join(", ")}`, s.removed.length && `Removed: ${s.removed.map(esc).join(", ")}`,
+    ...s.visibility.map(v => `${esc(v.sheet)}: ${v.old} → ${v.new}`)].filter(Boolean);
+  const sec = (title, body) => body ? `<div class="card"><h3>${title}</h3>${body}</div>` : "";
+  const warnHtml = (x.warnings || []).map(w => `<div class="callout red"><b>Check before relying on this version.</b> ${esc(w)}</div>`).join("");
+  $("#pane").innerHTML = `<div class="wrap">${picker}${warnHtml}${identHtml}
+    <div class="card"><h3>Summary</h3><div class="md" id="summary">${d.diff_summary ? DOMPurify.sanitize(marked.parse(d.diff_summary)) : '<span class="muted">Writing summary…</span>'}</div></div>
+    <div class="tiles">${tiles.map(([k, v]) => `<div class="tile ${v ? "" : "zero"}"><b>${fmtN(v)}</b><span>${k}</span></div>`).join("")}</div>
+    ${sec("Inputs changed", x.inputs.length && tableOf(x.inputs, [["Cell", r => `<span class="ref">${esc(r.ref)}</span>`], ["Line item", r => esc(r.label) + (r.units ? ` <span class="muted">[${esc(r.units)}]</span>` : "")],
+      ["Period", r => esc(r.period || "")], ["Before → after", r => change(r.old, r.new, r.units)]]) + more(c.inputs_changed, x.inputs.length))}
+    ${sec("Key outputs that moved", x.key_outputs.length && tableOf(x.key_outputs.slice(0, 25), [["Line item", r => `<span class="ref">${esc(r.ref)}</span> ${esc(r.label)}` + (r.units ? ` <span class="muted">[${esc(r.units)}]</span>` : "")],
+      ["First changed cell", r => `<span class="ref">${esc(r.cell)}</span> ${esc(r.period || "")}`], ["Before → after", r => change(r.old, r.new, r.units)], ["Change", r => pctCell(r.pct)],
+      ["Cells", r => fmtN(r.cells_changed)]]) + more(x.key_outputs.length, Math.min(25, x.key_outputs.length)))}
+    ${sec("Line items", (x.rows_added.length || x.rows_removed.length || x.rows_renamed.length) && tableOf(
+      [...x.rows_added.map(r => ({ ...r, k: "Added" })), ...x.rows_removed.map(r => ({ ...r, k: "Removed" })), ...x.rows_renamed.map(r => ({ ...r, k: "Renamed", label: `${r.old} → ${r.new}` }))],
+      [["", r => `<span class="pill ${r.k === "Removed" ? "bad" : r.k === "Added" ? "ok" : "check"}">${r.k}</span>`], ["Row", r => `<span class="ref">${esc(r.ref)}</span>`], ["Line item", r => esc(r.label)]]))}
+    ${sec("Formula changes", x.formula_rows.length && tableOf(x.formula_rows, [["Row", r => `<span class="ref">${esc(r.ref)}</span> ${esc(r.label)}`],
+      ["Before", r => `<code class="muted" style="font:12px var(--mono)">${esc(r.old)}</code>`], ["After", r => `<code style="font:12px var(--mono)">${esc(r.new)}</code>`]]))}
+    ${sec("Hard-coded values ↔ formulas", x.formula_vs_hardcode.length && tableOf(x.formula_vs_hardcode, [["Cell", r => `<span class="ref">${esc(r.ref)}</span>`],
+      ["Line item", r => esc(r.label)], ["Change", r => `<span class="pill check">${esc(r.change)}</span>`], ["Formula", r => `<code style="font:12px var(--mono)">${esc(r.old_formula || r.new_formula)}</code>`]]) + more(c.formula_vs_hardcode, x.formula_vs_hardcode.length))}
+    ${sec("Sheets", sheetBits.length && `<ul style="margin:0">${sheetBits.map(b => `<li>${b}</li>`).join("")}</ul>`)}
+    ${sec("Named ranges", x.names_changed.length && tableOf(x.names_changed, [["Name", r => esc(r.name)], ["Before → after", r => `${esc(r.old)}<span class="arrow">→</span>${esc(r.new)}`]]))}
+  </div>`;
+  chipRefs($("#summary")); bindCmp();
+}
+function bindCmp() {
+  $("#cmp").onchange = async e => {
+    $("#pane").insertAdjacentHTML("afterbegin", `<p class="muted">Comparing…</p>`);
+    const r = await fetch(`/api/files/${detail.id}/compare`, { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ previous_id: e.target.value ? Number(e.target.value) : null }) });
+    detail = await r.json(); renderHead(); renderChanges();
+  };
+}
+
+// ---- ask ----
+const REF = /\b([A-Za-z_][\w.]*!(?:r\d+(?:[-–]r?\d+)?|\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?))/g;
+function chipRefs(root) {
+  root.querySelectorAll("code").forEach(c => { if (/^[A-Za-z_][\w.]*![$A-Za-z0-9:–-]+$/.test(c.textContent)) c.className = "ref"; });
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const n of nodes) {
+    if (n.parentElement.closest("code,pre,a,.ref") || !REF.test(n.data)) continue;
+    REF.lastIndex = 0;
+    const span = document.createElement("span");
+    span.innerHTML = esc(n.data).replace(REF, '<span class="ref">$1</span>');
+    n.replaceWith(...span.childNodes);
+  }
+}
+const EXAMPLES = ["What drives equity value?", "What discount rate is used, and where is it set?",
+  "Which sheets are hidden and what do they do?", "Explain the changes from the previous version."];
+
+function renderAsk() {
+  const d = detail, chat = chats.get(d.id);
+  $("#pane").innerHTML = `<div class="wrap">${chat?.history.length ? `<div class="new-chat"><button class="btn ghost" type="button" id="new-chat">New chat</button></div>` : ""}<div class="thread" id="thread">${chat?.html || `
+    <div id="intro"><p class="muted" style="margin:0 0 12px;max-width:62ch">The model looks things up in this workbook with search,
+      row, trace and SQL tools and cites cells like <span class="ref">Valuation!r178</span>. It knows the confirmed target,
+      valuation date${d.diff ? " and the changes from the previous version" : ""}.</p>
+      <div class="chips" id="examples">${[...EXAMPLES, "Chart the valuation cash flows over time."].filter(q => d.diff || !q.startsWith("Explain")).map(q => `<button type="button">${q}</button>`).join("")}</div></div>`}
+  </div></div>`;
+  mountCharts($("#thread"));
+  const nc = $("#new-chat"); if (nc) nc.onclick = () => { chats.delete(d.id); renderAsk(); updateUsageChip(); };
+  const ex = $("#examples"); if (ex) ex.onclick = e => { if (e.target.tagName === "BUTTON") ask(e.target.textContent); };
+  const q = $("#question"), form = $("#ask-form");
+  form.onsubmit = e => { e.preventDefault(); const t = q.value.trim(); if (!t || $("#send").disabled) return; q.value = ""; autosize(); ask(t); };
+  q.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } };
+  q.oninput = autosize; scrollDown();
+}
+function autosize() { const q = $("#question"); q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 180) + "px"; }
+function scrollDown() { const p = $("#pane"); if (p) p.scrollTop = p.scrollHeight; }
+function argText(a) { return Object.entries(a).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", "); }
+
+async function ask(text) {
+  const fid = detail.id, model = $("#model").value;
+  const chat = chats.get(fid) || { history: [], html: "", session: newSession() }; chats.set(fid, chat);
+  $("#intro")?.remove();
+  const thread = $("#thread");
+  thread.insertAdjacentHTML("beforeend", `<div class="q">${esc(text)}</div>`);
+  const a = document.createElement("div"); a.className = "a";
+  a.innerHTML = `<details class="work"><summary><span class="pulse"></span><span class="label">Looking things up…</span></summary><div class="steps"></div></details>`;
+  thread.append(a); scrollDown();
+  const steps = a.querySelector(".steps"), label = a.querySelector(".label");
+  let calls = 0, chars = 0, answer = "", t0 = performance.now(), lastStep;
+  $("#send").disabled = true;
+  const handle = e => {
+    if (e.type === "tool_call") {
+      calls++; label.textContent = `Looking things up… ${calls} tool call${calls === 1 ? "" : "s"}`;
+      lastStep = document.createElement("div"); lastStep.className = "step";
+      lastStep.innerHTML = `<div class="call"><b>${esc(e.name)}</b>(${esc(argText(e.args))})</div>`; steps.append(lastStep);
+    } else if (e.type === "tool_result") { chars += e.chars; updateUsageChip(); lastStep?.insertAdjacentHTML("beforeend", `<pre>${esc(e.output)}</pre>`); }
+    else if (e.type === "answer") {
+      answer = e.text; const div = document.createElement("div"); div.className = "answer";
+      div.innerHTML = DOMPurify.sanitize(marked.parse(e.text || "_(empty answer)_")); chipRefs(div); a.append(div);
+    } else if (e.type === "usage") {
+      a.insertAdjacentHTML("beforeend", `<div class="chat-stats"><span><b>${fmtN(e.input_tokens)}</b> input tokens</span>
+        <span><b>${fmtN(e.cached_tokens || 0)}</b> of them cached</span><span><b>${fmtN(e.output_tokens)}</b> output tokens</span>
+        <span><b>${e.calls}</b> model turns</span><span><b>${((performance.now() - t0) / 1000).toFixed(1)}s</b></span><span>${esc(model)}</span></div>`);
+    } else if (e.type === "waiting") {
+      label.textContent = `Waiting ${e.seconds}s to stay under ${e.model}'s rate limit (${fmtN(e.tpm_budget)} tokens / ${fmtN(e.rpm_budget)} requests a minute)…`;
+      steps.insertAdjacentHTML("beforeend", `<div class="step muted">Paused ${e.seconds}s: ${esc(e.model)} is near its per-minute budget (limit minus a safety margin).</div>`);
+    } else if (e.type === "chart") {
+      const card = chartCard(e.spec); a.append(card); mountCharts(a);
+    } else if (e.type === "error") a.insertAdjacentHTML("beforeend", `<div class="error">${esc(e.text)}</div>`);
+    if (detail?.id === fid) scrollDown();
+  };
+  try {
+    const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: text, file_id: fid, model, history: chat.history, session: chat.session }) });
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf("\n")) >= 0) { handle(JSON.parse(buf.slice(0, i))); buf = buf.slice(i + 1); }
+    }
+  } catch (e) { handle({ type: "error", text: "Could not reach the local server. Is it still running? (" + e.message + ")" }); }
+  a.querySelector(".pulse")?.remove();
+  label.textContent = `Lookups: ${calls} tool call${calls === 1 ? "" : "s"}, ${fmtN(chars)} characters read`;
+  if (answer) chat.history.push({ role: "user", content: text }, { role: "assistant", content: answer });
+  chat.html = a.parentElement ? a.parentElement.innerHTML : chat.html + a.outerHTML;
+  const s = $("#send"); if (s) { s.disabled = false; $("#question")?.focus(); }
+  updateUsageChip();
+  const wrap = $("#pane .wrap");
+  if (detail?.id === fid && tab === "ask" && wrap && !$("#new-chat")) {
+    wrap.insertAdjacentHTML("afterbegin", `<div class="new-chat"><button class="btn ghost" type="button" id="new-chat">New chat</button></div>`);
+    $("#new-chat").onclick = () => { chats.delete(fid); renderAsk(); updateUsageChip(); };
+  }
+}
+
+// ---------- charts ----------
+function newSession() { try { return crypto.randomUUID(); } catch (e) { return String(Date.now()) + Math.random(); } }
+const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function chartCard(spec) {
+  const card = document.createElement("div"); card.className = "chart-card";
+  const refs = spec.series.map(s => `<span class="ref">${esc(s.range)}</span>`).join("");
+  card.innerHTML = `<h4>${esc(spec.title)}</h4><div class="sub">${spec.units ? esc(spec.units) + " · " : ""}${spec.labels.length} periods
+      ${spec.labels.length ? `· ${esc(spec.labels[0])} to ${esc(spec.labels[spec.labels.length - 1])}` : ""}</div>
+    <div class="chart-box"><canvas role="img" aria-label="${esc(spec.title)}"></canvas></div>
+    <div class="chart-tools"><button type="button" data-kind="line">Line</button><button type="button" data-kind="bar">Bar</button>
+      <button type="button" data-act="copy">Copy data</button><button type="button" data-act="reset">Reset zoom</button>
+      <span class="src">Source ${refs}</span></div>
+    <script type="application/json">${JSON.stringify(spec).replace(/</g, "\\u003c")}<\/script>`;
+  return card;
+}
+function mountCharts(root) {
+  root.querySelectorAll(".chart-card").forEach(card => {
+    if (card._chart) return;
+    const spec = JSON.parse(card.querySelector('script[type="application/json"]').textContent);
+    const draw = kind => {
+      card._chart?.destroy();
+      const ink = tok("--ink"), muted = tok("--muted"), rule = tok("--rule");
+      const fmt = v => v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) < 10 ? 4 : 1 });
+      card._chart = new Chart(card.querySelector("canvas"), {
+        type: kind,
+        data: { labels: spec.labels, datasets: spec.series.map((s, i) => {
+          const c = tok(`--s${(i % 6) + 1}`);
+          return { label: s.name, data: s.data, borderColor: c, backgroundColor: kind === "bar" ? c : c + "22",
+            borderWidth: 2, pointRadius: spec.labels.length > 60 ? 0 : 2.5, pointHoverRadius: 4, tension: 0,
+            fill: false, spanGaps: true };
+        }) },
+        options: { responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { display: spec.series.length > 1, labels: { color: ink, boxWidth: 12 } },
+            tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.raw)}${spec.units ? " " + spec.units : ""}` } } },
+          scales: { x: { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false }, border: { color: rule } },
+                    y: { ticks: { color: muted, callback: v => Number(v).toLocaleString() }, grid: { color: rule }, border: { display: false } } },
+          onClick: (evt, els, chart) => zoomTo(chart, els) } });
+      card.querySelectorAll("[data-kind]").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+    };
+    // Click a point to zoom into the 20 periods around it; Reset zoom goes back to the full range.
+    function zoomTo(chart, els) {
+      if (!els.length) return; const i = els[0].index, n = spec.labels.length;
+      chart.options.scales.x.min = Math.max(0, i - 10); chart.options.scales.x.max = Math.min(n - 1, i + 10); chart.update();
+    }
+    card.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => draw(b.dataset.kind));
+    card.querySelector('[data-act="reset"]').onclick = () => { const c = card._chart; delete c.options.scales.x.min; delete c.options.scales.x.max; c.update(); };
+    card.querySelector('[data-act="copy"]').onclick = async e => {
+      const rows = [["Period", ...spec.series.map(s => s.name)], ...spec.labels.map((l, i) => [l, ...spec.series.map(s => s.data[i] ?? "")])];
+      const tsv = rows.map(r => r.join("\t")).join("\n");
+      try { await navigator.clipboard.writeText(tsv); e.target.textContent = "Copied"; } catch (err) { e.target.textContent = "Copy failed"; }
+      setTimeout(() => e.target.textContent = "Copy data", 1500);
+    };
+    draw(spec.kind || "line");
+  });
+}
+
+// ---------- token usage ----------
+const usd = v => v == null ? "–" : v < 0.01 && v > 0 ? "<$0.01" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 3 : 2 });
+const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+const currentSession = () => detail && chats.get(detail.id)?.session;
+async function updateUsageChip() {
+  try {
+    const s = currentSession(), u = await (await fetch("/api/usage" + (s ? "?session=" + s : ""))).json();
+    const tot = u.total.input_tokens + u.total.output_tokens;
+    const ses = u.session ? u.session.input_tokens + u.session.output_tokens : 0;
+    $("#usage-chip").innerHTML = `Tokens: <b>${kfmt(ses)}</b> this chat · <b>${kfmt(tot)}</b> total · <b>${usd(u.total.cost_usd)}</b>`;
+  } catch (e) {}
+}
+$("#usage-chip").onclick = openUsage;
+$("#usage-close").onclick = () => $("#usage-dlg").close();
+async function openUsage() {
+  const s = currentSession(), u = await (await fetch("/api/usage" + (s ? "?session=" + s : ""))).json();
+  const cols = [["Calls", r => fmtN(r.calls)], ["Input", r => fmtN(r.input_tokens)], ["of which cached", r => fmtN(r.cached_tokens)], ["Output", r => fmtN(r.output_tokens)],
+    ["Cost (USD)", r => usd(r.cost_usd) + (r.unpriced_calls ? ` <span class="muted">+${r.unpriced_calls} unpriced</span>` : "") + (r.model && u.estimated_models.includes(r.model) ? ' <span class="pill check">est.</span>' : "")]];
+  const tiles = (t, label) => `<div class="card"><h3>${label}</h3><div class="tiles">
+      <div class="tile"><b>${fmtN(t.input_tokens)}</b><span>input tokens</span></div>
+      <div class="tile"><b>${fmtN(t.cached_tokens)}</b><span>of them cached (${t.input_tokens ? Math.round(100 * t.cached_tokens / t.input_tokens) : 0}%)</span></div>
+      <div class="tile"><b>${fmtN(t.output_tokens)}</b><span>output tokens</span></div>
+      <div class="tile"><b>${fmtN(t.calls)}</b><span>model calls</span></div>
+      <div class="tile"><b>${usd(t.cost_usd)}</b><span>cost at list price</span></div></div></div>`;
+  const PURPOSE = { chat: "Questions (Ask tab)", identify: "Identifying target and date", summary: "Change summaries" };
+  $("#usage-body").innerHTML = `
+    ${u.session ? tiles(u.session, "This chat" + (detail ? " · " + esc(detail.filename) : "")) : ""}
+    ${tiles(u.total, "All time" + (u.total.since ? " · since " + new Date(u.total.since * 1000).toLocaleDateString() : ""))}
+    ${u.by_day.length ? `<div class="card"><h3>By day (input + output)</h3><div class="chart-box" style="height:200px"><canvas id="usage-days"></canvas></div></div>` : ""}
+    ${u.limits ? `<div class="card"><h3>Rate limits (kept ${Math.round(u.limits.buffer * 100)}% below)</h3>${tableOf(Object.entries(u.limits.models).map(([m, l]) => ({ m, ...l })), [
+      ["Deployment", r => esc(r.m)], ["Limit / min", r => `${fmtN(r.tpm)} tokens · ${fmtN(r.rpm)} requests`],
+      ["App budget / min", r => `${fmtN(r.tpm_budget)} · ${fmtN(r.rpm_budget)}`],
+      ["Used in last minute", r => `${fmtN(r.tokens_last_min)} · ${fmtN(r.requests_last_min)}`]])}
+      <p class="muted" style="margin:8px 0 0;font-size:13px">Capacities from ${esc(u.limits.source)}. Requests per minute follow Microsoft's published ratios (gpt-4o confirmed from your portal: 2,700 a minute).</p></div>` : ""}
+    <div class="card"><h3>By purpose</h3>${tableOf(u.by_purpose, [["", r => esc(PURPOSE[r.purpose] || r.purpose)], ...cols])}</div>
+    <div class="card"><h3>By model</h3>${tableOf(u.by_model, [["", r => esc(r.model)], ...cols])}</div>
+    <div class="card"><h3>Recent chats</h3>${u.sessions.length ? tableOf(u.sessions, [["Last used", r => new Date(r.last * 1000).toLocaleString()],
+      ["Workbook", r => esc(r.filename || "removed file")], ["Models", r => esc(r.models)], ...cols]) : '<p class="muted" style="margin:0">No chats yet.</p>'}</div>
+    <p class="muted" style="margin:0;font-size:13px;max-width:75ch">Counted from the usage figures Azure returns with each response. Usage before this log was added isn't included.
+      Costs use Azure list prices in USD (East US, checked 25 Sep 2026); your bill can differ with discounts or credits.
+      <b>est.</b> models: gpt-6 uses short-context rates and excludes cache-write charges, so it's a minimum.</p>`;
+  $("#usage-dlg").showModal();
+  const days = [...u.by_day].reverse();
+  if (days.length) new Chart($("#usage-days"), { type: "bar",
+    data: { labels: days.map(d => d.day), datasets: [{ label: "Tokens", data: days.map(d => d.input_tokens + d.output_tokens), backgroundColor: tok("--s1") }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: tok("--muted") }, grid: { display: false } }, y: { ticks: { color: tok("--muted") }, grid: { color: tok("--rule") } } } } });
+}
+
+async function init() {
+  const cfg = await (await fetch("/api/config")).json();
+  $("#model").innerHTML = cfg.models.map(m => `<option>${esc(m)}</option>`).join("");
+  $("#model").value = store("model") || cfg.models[0];
+  if (!$("#model").value) $("#model").value = cfg.models[0];
+  $("#model").onchange = e => store("model", e.target.value);
+  loadFiles(); updateUsageChip();
+}
+init();
+</script>
+</body>
+</html>

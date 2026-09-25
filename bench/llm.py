@@ -1,0 +1,82 @@
+"""OpenAI client for the Azure AI Foundry project, signed in with Entra ID.
+
+First use prints a device code (sign in at the URL shown). The token is cached in the macOS
+Keychain and the account record in ~/.excel-agent/, so later runs are silent.
+    uv run python bench/llm.py            # sign in + smoke test
+
+Settings come from environment variables or a `.env` file in the project root (git-ignored; copy
+`.env.example`): AZURE_OPENAI_ENDPOINT, AZURE_AI_PROJECT_ENDPOINT, AZURE_TENANT_ID.
+"""
+import os
+from pathlib import Path
+
+from azure.identity import (AuthenticationRecord, AuthenticationRequiredError, DeviceCodeCredential,
+                            TokenCachePersistenceOptions, get_bearer_token_provider)
+from openai import OpenAI
+
+def _load_env(path: Path = Path(__file__).resolve().parent.parent / ".env") -> None:
+    """Minimal .env reader (KEY=value lines); real environment variables take precedence."""
+    if path.exists():
+        for line in path.read_text().splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key and not key.startswith("#"):
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_env()
+# e.g. https://<resource>.services.ai.azure.com/openai/v1
+ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+# e.g. https://<resource>.services.ai.azure.com/api/projects/<project>
+PROJECT_ENDPOINT = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
+SCOPE = "https://ai.azure.com/.default"
+# Personal Microsoft accounts must sign in to the subscription's own tenant (e.g. <name>.onmicrosoft.com),
+# not /common. Leave empty for work accounts.
+TENANT_ID = os.environ.get("AZURE_TENANT_ID", "")
+DEFAULT_MODEL = "gpt-5-nano"
+RECORD = Path.home() / ".excel-agent" / "auth_record.json"
+CACHE = TokenCachePersistenceOptions(name="excel-agent")
+
+
+def _show_code(verification_uri, user_code, expires_on):
+    print(f"DEVICE CODE: go to {verification_uri} and enter {user_code}", flush=True)
+
+
+def credential(interactive: bool = True) -> DeviceCodeCredential:
+    """interactive=False raises AuthenticationRequiredError instead of printing a new device code."""
+    record = AuthenticationRecord.deserialize(RECORD.read_text()) if RECORD.exists() else None
+    cred = DeviceCodeCredential(tenant_id=TENANT_ID or None, prompt_callback=_show_code, timeout=900,
+                                cache_persistence_options=CACHE, authentication_record=record,
+                                disable_automatic_authentication=not interactive)
+    if record is None:
+        if not interactive:
+            raise AuthenticationRequiredError(scopes=[SCOPE], message="not signed in")
+        RECORD.parent.mkdir(exist_ok=True)
+        RECORD.write_text(cred.authenticate(scopes=[SCOPE]).serialize())
+    return cred
+
+
+def client(interactive: bool = True) -> OpenAI:
+    if not ENDPOINT:
+        raise RuntimeError("Set AZURE_OPENAI_ENDPOINT (see .env.example)")
+    return OpenAI(base_url=ENDPOINT, api_key=get_bearer_token_provider(credential(interactive), SCOPE))
+
+
+def create(llm: OpenAI, model: str, on_wait=None, **kwargs):
+    """responses.create, kept a safety margin below the deployment's rate limits (see ratelimit.py).
+    on_wait(seconds, limits) is called if the call has to wait for room."""
+    import ratelimit
+    est = ratelimit.estimate_tokens(kwargs.get("instructions", ""), kwargs.get("input", ""), kwargs.get("tools", ""),
+                                    reserve_output=kwargs.get("max_output_tokens") or 1000)
+    entry = ratelimit.acquire(model, est, on_wait)
+    r = None
+    try:
+        r = llm.responses.create(model=model, **kwargs)
+        return r
+    finally:
+        u = getattr(r, "usage", None)
+        ratelimit.settle(entry, (u.input_tokens + u.output_tokens) if u else est)
+
+
+if __name__ == "__main__":
+    r = client().responses.create(model=DEFAULT_MODEL, input="What is the capital of France?")
+    print("answer:", r.output_text)

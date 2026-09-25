@@ -1,0 +1,20 @@
+# Local settings (Azure endpoints, tenant)
+.env
+
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Client data: confidential workbooks and everything derived from them (every cell is in model.db)
+reference/
+uploads/
+out/
+*.xlsm
+*.xlsb
+*.xls
+~$*
+
+# The generated test workbook is safe to keep
+!tests/sample_model.xlsx
