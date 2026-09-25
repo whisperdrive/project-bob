@@ -5,38 +5,40 @@ it with an exact data summary, and apply() folds the changes into the spec befor
 page. Only presentation can change (title, chart type, visible range, y-axis range, a note); the data never does.
 """
 import json
+from pathlib import Path
 
 from llm import client, create
 import usage
 
 REVIEW_MODEL = "gpt-4o"  # needs image input
 
-PROMPT = """You are reviewing a chart before it is shown to a financial analyst. The image is the chart as
-drawn. The data summary below is exact. Check it like a careful analyst would:
-- Can you read the trend the user asked about, or is it hidden (e.g. one huge value squashing everything else,
-  a long run of zeros or blanks at the start or end, too many points to read)?
-- Is the title specific and accurate? Are the units right? Only state units the data summary gives; if none
-  are given, say "units not labelled in the workbook" in the note rather than guessing.
-- Is line or bar the right form (line for a trend over time, bar for a few discrete periods)?
-- Are labels, ticks and the legend readable?
+RULES_FILE = Path(__file__).resolve().parent.parent / "docs" / "chart_rules.md"
 
-You can only change presentation, never the numbers. Allowed changes:
-- title: a better title (short, specific); don't put dates in it unless they match the visible range
-- kind: "line" or "bar"
-- x_start, x_end: indexes (0-based, inclusive) of the periods to show by default, e.g. to skip leading zeros
-  or leave out an outlier period; the user can still reset to the full range
-- y_min, y_max: y-axis limits, e.g. to keep a single outlier from flattening the rest (points beyond the
-  limits are cut off, so say so in the note)
-- note: one or two sentences shown under the chart explaining anything the viewer must know (an outlier
-  left out of view and its value, units, what the series is). Write numbers with thousands separators and
-  sensible rounding (e.g. 3,691,698), never raw decimals.
-To keep one outlier from flattening the rest, either end the visible range before its index (x_end =
-index - 1) or set y_max a little above max_without_largest; check the indexes in the data summary.
-Return JSON only. If the chart is already good, return {{"verdict": "ok", "issues": [], "changes": {{}}}}.
+PROMPT = """You review charts before they are shown to a financial analyst. The image is the chart as drawn;
+the data summary is exact (use it for numbers and indexes, not the pixels). Apply the chart rules below
+consistently, cite the rule ID at the start of every issue, and make the least change that satisfies them.
+
+Allowed changes (anything else is out of scope; report it as an issue):
+- title, kind ("line" or "bar"), note
+- x_start, x_end: 0-based inclusive indexes of the periods shown by default
+- y_min, y_max: y-axis limits
+Return JSON only. If the chart already follows the rules: {{"verdict": "ok", "issues": [], "changes": {{}}}}.
+
+=== CHART RULES ===
+{rules}
+=== END RULES ===
 
 User's question: {question}
 Data summary: {summary}
 {current}"""
+
+
+def rules_text() -> str:
+    """Read the rules fresh on every review, so edits take effect on the next chart."""
+    try:
+        return RULES_FILE.read_text()
+    except OSError:
+        return "(docs/chart_rules.md is missing: use careful judgement and say so in an issue)"
 
 _N = {"type": ["number", "null"]}
 _S = {"type": ["string", "null"]}
@@ -69,6 +71,9 @@ def summarize(spec: dict) -> dict:
             "min": min(v for _, v in vals), "max": max(v for _, v in vals),
             "first_nonzero_index": nz[0][0] if nz else None, "last_nonzero_index": nz[-1][0] if nz else None,
             "largest_abs": [{"index": i, "label": spec["labels"][i], "value": round(v, 2)} for i, v in top],
+            "largest_vs_next_largest": round(abs(top[0][1]) / abs(top[1][1]), 1) if len(top) > 1 and top[1][1] else None,
+            "leading_empty_periods": nz[0][0] if nz else len(s.get("data", [])),
+            "trailing_empty_periods": (len(s.get("data", [])) - 1 - nz[-1][0]) if nz else len(s.get("data", [])),
             "min_without_largest": round(min(rest), 2) if rest else None,
             "max_without_largest": round(max(rest), 2) if rest else None})
     return out
@@ -83,6 +88,7 @@ def _ask(llm, spec: dict, view: dict, question: str, file_id, session) -> dict:
                f"changes, or verdict ok." if view or spec.get("note") else "")
     r = create(llm, REVIEW_MODEL, text={"format": SCHEMA}, input=[{"role": "user", "content": [
         {"type": "input_text", "text": PROMPT.format(question=question or "(not given)", current=current,
+                                                     rules=rules_text(),
                                                      summary=json.dumps(summarize(spec), default=str))},
         {"type": "input_image", "image_url": image}]}])
     if r.usage:
