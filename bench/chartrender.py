@@ -30,7 +30,21 @@ def render_png(spec: dict, view: dict | None = None, width_px: int = 1200, heigh
             ax.bar([x + (i - (len(series) - 1) / 2) * width for x in xs], ys, width=width, color=c, label=s.get("name"))
         else:
             ax.plot(xs, ys, color=c, linewidth=1.8, label=s.get("name"), marker="o" if n <= 60 else None, markersize=3)
-    ax.set_title(spec.get("title") or "", loc="left", fontsize=13, fontweight="bold")
+    # Actuals / Business plan / Forecast spans, shaded like the page (clipped to the visible window;
+    # labels only where the span is wide enough to read)
+    vw = view or {}
+    lo_v = vw.get("x_start") or 0
+    hi_v = vw.get("x_end") if vw.get("x_end") is not None else n - 1
+    for k, ph in enumerate(shown.get("phases") or []):
+        a, b = max(ph["start"], lo_v), min(ph["end"], hi_v)
+        if a > b:
+            continue
+        if k % 2 == 0:
+            ax.axvspan(a - 0.5, b + 0.5, color="#1b2320", alpha=0.05, linewidth=0)
+        if (b - a + 1) >= 0.08 * (hi_v - lo_v + 1):
+            ax.text((a + b) / 2, 1.0, ph["name"], transform=ax.get_xaxis_transform(), ha="center", va="bottom",
+                    fontsize=8, color="#5d6a64", clip_on=False)
+    ax.set_title(spec.get("title") or "", loc="left", fontsize=13, fontweight="bold", pad=16)
     units = spec.get("units") or "units not labelled"
     if spec.get("sign") == -1:
         units += " (negative values shown as positive)"

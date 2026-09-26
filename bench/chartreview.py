@@ -64,6 +64,8 @@ def summarize(spec: dict) -> dict:
            "first_label": (labs or [None])[0], "last_label": (labs or [None])[-1],
            "sign_presentation": ("all values are negative in the workbook and are shown as positive"
                                  if spec.get("sign") == -1 else "values shown with their workbook signs"),
+           "phases": [{"name": p["name"], "from": labs[p["start"]], "to": labs[p["end"]]}
+                      for p in (shown.get("phases") or [])],
            "series": []}
     for s in shown["series"]:
         vals = [(i, v) for i, v in enumerate(s.get("data", [])) if isinstance(v, (int, float))]
@@ -133,6 +135,12 @@ def review(spec: dict, question: str, file_id: int | None = None, session: str |
                 spec[k] = out["changes"][k]
     if "x_start" in changes and "x_end" in changes and changes["x_start"] > changes["x_end"]:
         changes.pop("x_start"), changes.pop("x_end")
+    # Guard (F4): a default window that hides more than half the periods is a review mistake, not framing.
+    n = len(spec.get("labels", []))
+    lo, hi = changes.get("x_start", 0), changes.get("x_end", n - 1)
+    if n and (hi - lo + 1) < 0.5 * n:
+        changes.pop("x_start", None), changes.pop("x_end", None)
+        issues.append(f"[F4] Proposed visible range kept only {hi - lo + 1} of {n} periods; not applied.")
     return {"verdict": verdict, "issues": issues, "changes": changes, "model": REVIEW_MODEL}
 
 

@@ -55,7 +55,10 @@ TOOLS = [
          "kind": {"type": "string", "enum": ["line", "bar"]},
          "units": {"type": "string", "description": "only if the workbook states them (the row's units column, "
                                                     "or the sheet's unit header), e.g. A$'000; omit if unsure"},
-         "x_range": {"type": "string", "description": "optional range holding the x-axis labels"}},
+         "x_range": {"type": "string", "description": "optional range holding the x-axis labels"},
+         "partial_ok": {"type": "boolean", "description": "set true only if the user asked for part of the "
+                        "timeline (e.g. actuals only); otherwise a series covering part of the timeline is "
+                        "held back with a warning so you can chart the full row instead"}},
          "required": ["title", "series"]}},
     {"type": "function", "name": "sql",
      "description": "Read-only SQLite query. Tables: cells(sheet,row,col,addr,formula,value), "
@@ -75,9 +78,18 @@ When the user asks for a chart, plot or graph, or a trend would be clearer as on
 item and its timeline columns, then call the chart tool with those cell ranges. The chart appears in the
 chat, so don't write plotting code, SVG or tables of the charted numbers; describe what it shows instead.
 State units only when the workbook gives them; otherwise say the units aren't labelled.
+For anything over time, chart the series that covers the whole timeline, actuals and forecast together:
+usually a calculated row on an operations or valuation sheet, not an input or actuals row, and not an
+"ex. historicals" row unless the user asks for that. The chart shades the model's Actuals / Business plan /
+Forecast periods automatically. If the chart tool says a series only covers part of the timeline, chart the
+suggested full rows instead (or set partial_ok if the user asked for that part only).
 
 Workbook overview:
 """
+
+
+class _HeldBack(Exception):
+    """A chart that wasn't shown (e.g. it only covers part of the timeline); the message goes to the model."""
 
 
 def _run_tool(name: str, args: dict) -> str:
@@ -129,7 +141,14 @@ def ask(question: str, db_path: str, model: str, history: list | None = None, in
             with tools.using(db_path):
                 if c.name == "chart":
                     try:
+                        partial_ok = bool(args.pop("partial_ok", False))
                         spec = tools.chart(**args)
+                        note = tools.chart_note(spec)
+                        if "WARNING:" in note and not partial_ok:
+                            # Don't show a half-empty chart; let the model redraw with the full rows.
+                            raise _HeldBack(note + "\nThis chart was NOT shown to the user. Chart the full-timeline "
+                                                   "rows instead, or call chart again with partial_ok=true if the "
+                                                   "user asked for this part of the timeline only.")
                         # Review before showing: render on the server, vision-model check, apply fixes.
                         yield {"type": "chart_review", "title": spec.get("title")}
                         try:
@@ -140,6 +159,8 @@ def ask(question: str, db_path: str, model: str, history: list | None = None, in
                                               "issues": [f"Review unavailable: {type(e).__name__}"]}
                         yield {"type": "chart", "spec": spec}
                         out = tools.chart_note(spec) + "\n" + chartreview.describe(spec)
+                    except _HeldBack as e:
+                        out = str(e)
                     except Exception as e:
                         out = f"error: {type(e).__name__}: {e}"
                 else:

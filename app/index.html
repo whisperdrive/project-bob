@@ -670,8 +670,29 @@ function shownData(spec, mode) {
   const labels = annual ? a.labels : (spec.period_labels || spec.labels);
   const series = (annual ? a.series : spec.series).map(s => ({ name: s.name, method: s.method,
     data: s.data.map(v => v == null ? null : v * sign + 0) }));
-  return { labels, series };
+  const phases = annual ? a.phases : spec.phases;
+  return { labels, series, phases: phases || null };
 }
+// Chart.js plugin: shade alternate Actuals / Business plan / Forecast spans and label them above the plot.
+const phasePlugin = {
+  id: "phases",
+  beforeDatasetsDraw(chart, args, opts) {
+    const ph = opts.phases; if (!ph || !ph.length) return;
+    const { ctx, chartArea: area, scales: { x } } = chart;
+    ctx.save();
+    ph.forEach((p, k) => {
+      const x0 = Math.max(area.left, x.getPixelForValue(p.start) - (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2);
+      const x1 = Math.min(area.right, x.getPixelForValue(p.end) + (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2);
+      if (x1 <= area.left || x0 >= area.right) return;
+      if (k % 2 === 0) { ctx.fillStyle = opts.shade; ctx.fillRect(x0, area.top, x1 - x0, area.bottom - area.top); }
+      if (x1 - x0 > Math.max(60, ctx.measureText(p.name).width + 16)) {
+        ctx.fillStyle = opts.text; ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+        ctx.textAlign = "center"; ctx.fillText(p.name, (x0 + x1) / 2, area.top + 12);
+      }
+    });
+    ctx.restore();
+  },
+};
 const FREQ_WORD = { monthly: "Monthly", quarterly: "Quarterly", "semi-annual": "Half-yearly", annual: "Annual" };
 const METHOD_WORD = { sum: "totals", last: "year-end values", first: "opening values", average: "averages" };
 function chartSubtitle(spec, mode) {
@@ -682,10 +703,14 @@ function chartSubtitle(spec, mode) {
   if (mode === "annual" && spec.annual) {
     const a = spec.annual, methods = [...new Set(a.series.map(s => METHOD_WORD[s.method]))].join(" / ");
     return `${units}${signNote} · ${n} years: annual ${methods} by ${esc(a.basis)}${span}` +
-      (a.partial.some(Boolean) ? " · * partial year" : "");
+      (a.partial.some(Boolean) ? " · * partial year" : "") + phaseText(d);
   }
   return `${units}${signNote} · ${n} ${(FREQ_WORD[spec.frequency] || "").toLowerCase() || "points"}${n ? " periods" : ""}${span}`
-    .replace(" periods periods", " periods");
+    .replace(" periods periods", " periods") + phaseText(d);
+}
+function phaseText(d) {
+  if (!d.phases || !d.phases.length) return "";
+  return "<br>" + d.phases.map(p => `${esc(p.name)} ${esc(d.labels[p.start])}–${esc(d.labels[p.end])}`).join(" · ");
 }
 function chartCard(spec) {
   const card = document.createElement("div"); card.className = "chart-card";
@@ -711,7 +736,7 @@ function mountCharts(root) {
       const ink = tok("--ink"), muted = tok("--muted"), rule = tok("--rule");
       const fmt = v => v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) < 10 ? 4 : 1 });
       card._chart = new Chart(card.querySelector("canvas"), {
-        type: kind,
+        type: kind, plugins: [phasePlugin],
         data: { labels: d.labels, datasets: d.series.map((s, i) => {
           const c = tok(`--s${(i % 6) + 1}`);
           return { label: s.name, data: s.data, borderColor: c, backgroundColor: kind === "bar" ? c : c + "22",
@@ -720,7 +745,8 @@ function mountCharts(root) {
         }) },
         options: { responsive: true, maintainAspectRatio: false, animation: false,
           interaction: { mode: "index", intersect: false },
-          plugins: { legend: { display: d.series.length > 1, labels: { color: ink, boxWidth: 12 } },
+          plugins: { phases: { phases: d.phases, shade: tok("--code-bg"), text: muted },
+            legend: { display: d.series.length > 1, labels: { color: ink, boxWidth: 12 } },
             tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.raw)}${spec.units && !/not\s+label/i.test(spec.units) ? " " + spec.units : ""}` } } },
           scales: { x: { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false }, border: { color: rule } },
                     y: { ticks: { color: muted, callback: v => Number(v).toLocaleString() }, grid: { color: rule }, border: { display: false } } },

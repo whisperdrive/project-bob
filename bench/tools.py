@@ -192,6 +192,27 @@ def _period_label(v) -> str:
     return s[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", s) else s[:24]
 
 
+_ROW_TOTAL = re.compile(r"^=\+?\(?SUM\(RC\[(-?\d+)\]:RC\[(-?\d+)\]\)\)?$", re.I)
+
+
+def _total_columns(db, sheet: str, pts: list[tuple[int, int]]) -> set[int]:
+    """Columns at either end of a row range whose formula sums the rest of that row (a "row total" column,
+    e.g. K = SUM(L:HO)); charting them would add the whole row's total as a period."""
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.dirname(__file__))
+    from build_map import to_pattern
+    if len(pts) < 4 or pts[0][0] != pts[-1][0]:
+        return set()
+    row, drop = pts[0][0], set()
+    for r, c in (pts[0], pts[-1]):
+        f = db.execute("SELECT formula FROM cells WHERE sheet=? AND row=? AND col=?", (sheet, r, c)).fetchone()
+        if f and f[0]:
+            m = _ROW_TOTAL.match(to_pattern(f[0], r, c, sheet)[0].replace(" ", ""))
+            if m and abs(int(m[2]) - int(m[1])) + 1 >= 0.5 * (len(pts) - 1):
+                drop.add(c)
+    return drop
+
+
 def chart(title: str, series: list[dict], kind: str = "line", x_range: str | None = None,
           units: str | None = None) -> dict:
     """Data for a chart the UI draws. Each series is {"range": "Sheet!L95:AO95", "name": optional}.
@@ -199,8 +220,13 @@ def chart(title: str, series: list[dict], kind: str = "line", x_range: str | Non
     import json as _json
     db = _db()
     out_series, labels = [], None
+    dropped: list[int] = []  # positions removed from every series (row-total columns)
     for s in series[:8]:
         sheet, pts = _range_cells(db, s["range"])
+        if not dropped and out_series == []:
+            tot = _total_columns(db, sheet, pts)
+            dropped = [i for i, p in enumerate(pts) if p[1] in tot]
+        pts = [p for i, p in enumerate(pts) if i not in dropped]
         vals = {(r, c): v for r, c, v in db.execute(
             f"SELECT row, col, value FROM cells WHERE sheet=? AND row BETWEEN ? AND ? AND col BETWEEN ? AND ?",
             (sheet, min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts)))}
@@ -218,6 +244,7 @@ def chart(title: str, series: list[dict], kind: str = "line", x_range: str | Non
         if labels is None:
             if x_range:
                 xs, xpts = _range_cells(db, x_range)
+                xpts = [p for i, p in enumerate(xpts) if i not in dropped]
                 xv = dict(((r, c), v) for r, c, v in db.execute(
                     "SELECT row, col, value FROM cells WHERE sheet=?", (xs,)) if (r, c) in set(xpts))
                 labels = [_period_label(xv.get(p, "")) for p in xpts]
@@ -232,9 +259,46 @@ def chart(title: str, series: list[dict], kind: str = "line", x_range: str | Non
     n = max((len(s["data"]) for s in out_series), default=0)
     labels = (labels or [])[:n] + [""] * (n - len(labels or []))
     import chartdata
+    if not units:  # all series share their rows' units (e.g. pax '000): use them
+        us = {s.get("units") for s in out_series}
+        if len(us) == 1 and next(iter(us)):
+            units = next(iter(us))
+    first = [p for i, p in enumerate(_range_cells(db, series[0]["range"])[1]) if i not in dropped] if series else []
     spec = {"title": title, "kind": kind if kind in ("line", "bar") else "line", "units": units,
-            "labels": labels, "series": out_series}
+            "labels": labels, "series": out_series,
+            "columns": [c for r, c in first] if first and first[0][0] == first[-1][0] else None}
+    if dropped:
+        spec["dropped_total_columns"] = len(dropped)
     return chartdata.enrich(spec, db)
+
+
+def _fuller_rows(rng: str, limit: int = 4) -> str:
+    """Rows that depend on the charted row (up to 3 levels down) and have values across more of the timeline."""
+    try:
+        db = _db()
+        sheet, pts = _range_cells(db, rng)
+        row = pts[0][0]
+    except Exception:
+        return ""
+    seen, frontier, found = {(sheet, row)}, [(sheet, row)], []
+    for _ in range(3):
+        nxt = []
+        for s, r in frontier:
+            for ds, dr in db.execute("SELECT src_sheet, src_row FROM edges WHERE dst_sheet=? AND dst_row=?", (s, r)):
+                if (ds, dr) not in seen:
+                    seen.add((ds, dr))
+                    nxt.append((ds, dr))
+        frontier = nxt
+        for ds, dr in nxt:
+            n = db.execute("SELECT COUNT(*) FROM cells WHERE sheet=? AND row=? AND typeof(value) IN ('real','integer') "
+                           "AND value<>0", (ds, dr)).fetchone()[0]
+            found.append((n, ds, dr))
+    found.sort(reverse=True)
+    out = []
+    for n, ds, dr in found[:limit]:
+        lab = db.execute("SELECT label, units FROM rows WHERE sheet=? AND row=?", (ds, dr)).fetchone()
+        out.append(f"{ds}!r{dr} {lab[0] if lab else ''} [{lab[1] if lab else ''}] ({n} non-zero periods)")
+    return "; ".join(out)
 
 
 def chartdata_methods(a: dict) -> list[str]:
@@ -253,6 +317,21 @@ def chart_note(spec: dict) -> str:
         a = spec["annual"]
         lines.append(f"The user can switch to annual figures by {a['basis']} "
                      f"({', '.join(chartdata_methods(a))}); years marked * are partial.")
+    if spec.get("dropped_total_columns"):
+        lines.append("A row-total column (a SUM of the rest of the row) was left out of the chart.")
+    if spec.get("phases"):
+        lines.append("Shaded on the chart: " + ", ".join(
+            f"{p['name']} {shown[p['start']]} to {shown[p['end']]}" for p in spec["phases"]) + ".")
+    n_periods = len(shown)
+    for s in spec["series"]:
+        nz = [i for i, v in enumerate(s["data"]) if isinstance(v, (int, float)) and v]
+        if n_periods >= 8 and nz and (nz[-1] - nz[0] + 1) < 0.6 * n_periods:
+            hint = _fuller_rows(s["range"])
+            lines.append(f"WARNING: {s['name']} ({s['range']}) only has values from {shown[nz[0]]} to "
+                         f"{shown[nz[-1]]} ({nz[-1] - nz[0] + 1} of {n_periods} periods). It looks like an input or "
+                         f"actuals-only row. Look for the calculated row that combines actuals and forecast over the "
+                         f"whole timeline and chart that instead" + (f"; rows that use this one and cover more "
+                                                                     f"periods: {hint}" if hint else "") + ".")
     for s in spec["series"]:
         nums = [v for v in s["data"] if v is not None]
         if nums:

@@ -88,6 +88,8 @@ def enrich(spec: dict, db: sqlite3.Connection) -> dict:
         period_labels = [f"{month_abbr[e.month]}-{e.year}" for e in ends]
     spec.update(frequency=freq, period_labels=period_labels, period_ends=[e.isoformat() for e in ends],
                 fy_end_month=fy_m, sign=_sign(spec))
+    if spec.get("columns"):
+        spec["phases"] = phases(db, spec["series"], spec["columns"])
     if freq in ("irregular", "annual"):
         spec["annual"] = None
         return spec
@@ -117,13 +119,68 @@ def enrich(spec: dict, db: sqlite3.Connection) -> dict:
                 vals.append(nums[-1])
         a_series.append({"name": s["name"], "data": vals, "method": method})
     partial = [c < per_year for c in counts]
+    a_phases = None
+    if spec.get("phases"):
+        per = [None] * n
+        for ph in spec["phases"]:
+            for i in range(ph["start"], ph["end"] + 1):
+                per[i] = ph["name"]
+        last = {}
+        for i, yi in enumerate(period_year):
+            last[yi] = per[i]
+        a_phases = []
+        for yi in range(len(years)):
+            name = last.get(yi)
+            if name is None:
+                continue
+            if a_phases and a_phases[-1]["name"] == name and a_phases[-1]["end"] == yi - 1:
+                a_phases[-1]["end"] = yi
+            else:
+                a_phases.append({"name": name, "start": yi, "end": yi})
     spec["annual"] = {
+        "phases": a_phases,
         "labels": [year_label(y) + ("*" if p else "") for y, p in zip(years, partial)],
         "series": a_series, "partial": partial, "period_year": period_year,
         "basis": (f"financial year ending {month_abbr[fy_m]}" if fy_m != 12 else "calendar year"),
         "methods": sorted({s["method"] for s in a_series}),
     }
     return spec
+
+
+_PHASE = re.compile(r"^\s*(actuals?|historicals?|history|business plan|budget|forecasts?|projections?|projected)\s*$",
+                    re.I)
+
+
+def phases(db: sqlite3.Connection, series: list[dict], cols: list[int]) -> list[dict] | None:
+    """Actual / business plan / forecast spans, from the model's 0/1 phase flag rows on the timeline
+    (e.g. "Actuals", "Business plan", "Forecast"). Prefers flags on the series' own sheet. Returns
+    [{"name", "start", "end"}] over period indexes, or None if the model has no such flags."""
+    sheets = [s["range"].split("!")[0].strip("'") for s in series if "!" in s.get("range", "")]
+    rows = db.execute("SELECT sheet, row, label FROM rows").fetchall()
+    cands = [(sh, r, lab) for sh, r, lab in rows if lab and _PHASE.match(lab)]
+    cands.sort(key=lambda x: (x[0] not in sheets, x[0], x[1]))
+    for sheet in dict.fromkeys(sh for sh, _, _ in cands):
+        flags = []
+        for sh, r, lab in cands:
+            if sh != sheet:
+                continue
+            vals = dict(db.execute("SELECT col, value FROM cells WHERE sheet=? AND row=?", (sh, r)))
+            v = [vals.get(c) for c in cols]
+            if all(x in (0, 1, 0.0, 1.0, None) for x in v) and any(x == 1 for x in v):
+                flags.append((lab.strip().capitalize() if lab.islower() else lab.strip(), v))
+        if len(flags) >= 2:
+            per = [next((name for name, v in flags if v[i] == 1), None) for i in range(len(cols))]
+            out = []
+            for i, name in enumerate(per):
+                if name is None:
+                    continue
+                if out and out[-1]["name"] == name and out[-1]["end"] == i - 1:
+                    out[-1]["end"] = i
+                else:
+                    out.append({"name": name, "start": i, "end": i})
+            if len(out) >= 2:
+                return out
+    return None
 
 
 def _sign(spec: dict) -> int:
@@ -140,6 +197,7 @@ def display(spec: dict, mode: str = "periodic") -> dict:
         labels, series = a["labels"], a["series"]
     else:
         labels, series = spec.get("period_labels") or spec.get("labels", []), spec.get("series", [])
-    return {"labels": labels, "series": [{"name": s["name"], "data": [v * sign + 0.0 if isinstance(v, (int, float))
+    ph = spec["annual"].get("phases") if mode == "annual" and spec.get("annual") else spec.get("phases")
+    return {"labels": labels, "phases": ph, "series": [{"name": s["name"], "data": [v * sign + 0.0 if isinstance(v, (int, float))
                                                                        else v for v in s["data"]]}
                                          for s in series]}
