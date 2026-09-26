@@ -14,6 +14,12 @@ uv run python bench/compare.py "$W" "reference/valuation_model.xlsb"   # optiona
 Outputs go to `out/<workbook name>/` (`census.json`, `map.txt`, `model.db`, `compare.json`).
 `.xlsb`/`.xls` can be benchmarked by compare.py but build_map needs `.xlsx`/`.xlsm` for formulas.
 
+Edges (`bench/edges.py`) link each line item to the rows it reads, with a kind: `direct` (a plain
+reference), `offset` (the range an OFFSET actually points at, worked out from saved values), `active` (the
+row a SUMIFS / INDEX-MATCH / CHOOSE selects in the current scenario) or `inactive` (a candidate it
+considers but doesn't select). `trace` follows the active path and counts the inactive candidates.
+`uv run python bench/edges.py out/<dir>/model.db` upgrades an older model.db in place.
+
 `bench/tools.py` holds the agent tools. Call `tools.use(<workbook>)` first, then `overview()`, `find(text)`,
 `rows(sheet, r1, r2)`, `trace(sheet, row, "up"|"down")`, `cells(sheet, A1, A1)`, `sql(query)`.
 

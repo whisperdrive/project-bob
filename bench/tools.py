@@ -114,29 +114,44 @@ def rows(sheet: str, r1: int, r2: int | None = None) -> str:
                      for r, lab, u, nf, nc, p, sm in res) or "no line items in range"
 
 
-def trace(sheet: str, row: int, direction: str = "up", depth: int = 2, limit: int = 60) -> str:
-    """Line-item dependency tree. up = precedents (what feeds it), down = dependents (what it feeds)."""
+def trace(sheet: str, row: int, direction: str = "up", depth: int = 2, limit: int = 60,
+          include_inactive: bool = False) -> str:
+    """Line-item dependency tree. up = precedents (what feeds it), down = dependents (what it feeds).
+    By default follows what the current scenario uses: rows a SUMIFS / INDEX-MATCH / CHOOSE considers
+    but doesn't pick are left out and counted (include_inactive=True lists them, marked "not selected")."""
     db = _db()
+    has_kind = "kind" in [r[1] for r in db.execute("PRAGMA table_info(edges)")]
+    k = ", kind" if has_kind else ", 'direct'"
     if direction == "up":
-        q = "SELECT dst_sheet, dst_row FROM edges WHERE src_sheet=? AND src_row=?"
+        q = f"SELECT dst_sheet, dst_row{k} FROM edges WHERE src_sheet=? AND src_row=?"
     else:
-        q = "SELECT src_sheet, src_row FROM edges WHERE dst_sheet=? AND dst_row=?"
+        q = f"SELECT src_sheet, src_row{k} FROM edges WHERE dst_sheet=? AND dst_row=?"
     out = [f"{sheet}!r{row} {_label(db, sheet, row)}"]
     seen = {(sheet, row)}
     queue = deque([(sheet, row, 0)])
+    hidden = 0
     while queue and len(out) < limit:
         s, r, d = queue.popleft()
         if d >= depth:
             continue
-        for ns, nr in sorted(db.execute(q, (s, r)).fetchall()):
+        for ns, nr, kind in sorted(db.execute(q, (s, r)).fetchall()):
             if (ns, nr) in seen:
                 continue
+            if kind == "inactive" and not include_inactive:
+                hidden += 1
+                continue
             seen.add((ns, nr))
-            out.append(f"{'  ' * (d + 1)}{'<-' if direction == 'up' else '->'} {ns}!r{nr} {_label(db, ns, nr)}")
-            queue.append((ns, nr, d + 1))
+            tag = {"inactive": "  (not selected in the current scenario)", "active": "  (selected)",
+                   "offset": "  (via OFFSET)"}.get(kind, "")
+            out.append(f"{'  ' * (d + 1)}{'<-' if direction == 'up' else '->'} {ns}!r{nr} {_label(db, ns, nr)}{tag}")
+            if kind != "inactive":
+                queue.append((ns, nr, d + 1))
             if len(out) >= limit:
                 out.append(f"... truncated at {limit}")
                 break
+    if hidden:
+        out.append(f"(+{hidden} rows a lookup considers but doesn't select in the current scenario; "
+                   f"trace(..., include_inactive=True) lists them)")
     return "\n".join(out)
 
 

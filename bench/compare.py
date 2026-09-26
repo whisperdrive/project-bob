@@ -74,7 +74,7 @@ def top_output() -> tuple[str, int, str]:
     db = sqlite3.connect(f"file:{tools.DB}?mode=ro", uri=True)
     up = defaultdict(list)
     has_dependents = set()
-    for ss, sr, ds, dr in db.execute("SELECT * FROM edges"):
+    for ss, sr, ds, dr in db.execute("SELECT src_sheet, src_row, dst_sheet, dst_row FROM edges"):
         up[(ss, sr)].append((ds, dr))
         has_dependents.add((ds, dr))
     # model-check rows (sum of every error flag) have huge trees but aren't business outputs

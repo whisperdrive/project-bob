@@ -29,11 +29,14 @@ TOOLS = [
          "required": ["sheet", "r1"]}},
     {"type": "function", "name": "trace",
      "description": "Dependency tree of a line item. direction 'up' = precedents (what feeds it), "
-                    "'down' = dependents (what it feeds).",
+                    "'down' = dependents (what it feeds). Follows what the current scenario actually uses; "
+                    "lookup candidates that aren't selected are counted, not listed, unless include_inactive.",
      "parameters": {"type": "object", "properties": {
          "sheet": {"type": "string"}, "row": {"type": "integer"},
          "direction": {"type": "string", "enum": ["up", "down"]},
-         "depth": {"type": "integer", "description": "levels to follow, default 2"}},
+         "depth": {"type": "integer", "description": "levels to follow, default 2"},
+         "include_inactive": {"type": "boolean", "description": "also list rows a SUMIFS / INDEX-MATCH / "
+                              "CHOOSE considers but doesn't select in the current scenario (default false)"}},
          "required": ["sheet", "row"]}},
     {"type": "function", "name": "cells",
      "description": "Raw cells (formula and cached value) in an A1 range, e.g. sheet='Valuation', "

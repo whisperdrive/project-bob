@@ -5,7 +5,7 @@ Usage: build_map.py <workbook.xlsx|.xlsm>
 Outputs (in out/<workbook name>/):
   map.txt   - one line per line item: label, units, formula pattern(s) in R1C1, sample values
   model.db  - SQLite: sheets (detected layout), cells (every non-empty cell), rows (line items),
-              edges (row -> row deps), names
+              edges (row -> row deps with a kind: direct / offset / active / inactive, see edges.py), names
 
 Formulas come from openpyxl; cached values come from calamine (fast). Sheet layout (label / units
 columns, timeline) is detected per sheet by layout.py.
@@ -27,7 +27,6 @@ from python_calamine import CalamineWorkbook
 
 from layout import describe, detect_layout
 
-MAX_RANGE_ROWS = 300      # cap on row edges expanded from a single range ref
 TABLE_MIN_ROWS = 50       # consecutive formula-free rows with the same columns are summarised as one table
 
 CELL_RE = re.compile(r"^(\$?)([A-Z]{1,3})(\$?)(\d+)$")
@@ -165,18 +164,7 @@ def main(path: str, out: str | None = None, progress=None) -> dict:
     cal = CalamineWorkbook.from_path(path)
     errors = error_cells(path)
 
-    # defined names -> (sheet, row_lo, row_hi)
-    name_targets: dict[str, list[tuple[str, int, int]]] = {}
-    name_rows = []
-    for n, dn in wb.defined_names.items():
-        txt = dn.attr_text
-        name_rows.append((n, txt))
-        tsheet, addr = split_sheet(txt)
-        if tsheet:
-            rows = [cell_to_r1c1(p, 1, 1)[1] for p in addr.split(":")]
-            rows = [r[0] for r in rows if r]
-            if rows:
-                name_targets[n.lower()] = [(tsheet, min(rows), max(rows))]
+    name_rows = [(n, dn.attr_text) for n, dn in wb.defined_names.items()]
 
     out = out or out_dir(path)
     os.makedirs(out, exist_ok=True)
@@ -189,7 +177,7 @@ def main(path: str, out: str | None = None, progress=None) -> dict:
         CREATE TABLE cells(sheet TEXT, row INT, col INT, addr TEXT, formula TEXT, value);
         CREATE TABLE rows(sheet TEXT, row INT, section TEXT, label TEXT, units TEXT,
                           n_formula INT, n_const INT, patterns TEXT, samples TEXT);
-        CREATE TABLE edges(src_sheet TEXT, src_row INT, dst_sheet TEXT, dst_row INT);
+        CREATE TABLE edges(src_sheet TEXT, src_row INT, dst_sheet TEXT, dst_row INT, kind TEXT);
         CREATE TABLE names(name TEXT, ref TEXT);
     """)
     db.executemany("INSERT INTO names VALUES (?,?)", name_rows)
@@ -198,7 +186,6 @@ def main(path: str, out: str | None = None, progress=None) -> dict:
              "Legend: sheet!row label [units] f=formula cells c=constant cells | pattern(s) in R1C1 "
              "(R[n]=relative row, R5=absolute row, C likewise) x count cols | eg sample cached values"]
     sheet_rows: dict[str, set[int]] = defaultdict(set)
-    all_edges = set()
 
     n_sheets = len(wb.worksheets)
     for i_sheet, ws in enumerate(wb.worksheets):
@@ -260,15 +247,8 @@ def main(path: str, out: str | None = None, progress=None) -> dict:
                     continue
                 if is_f:
                     n_formula += 1
-                    pat, spans, names = to_pattern(v, r, c.column, name)
+                    pat, _, _ = to_pattern(v, r, c.column, name)  # edges are built later, in edges.py
                     patterns[pat].append(c.coordinate)
-                    for s, lo, hi in spans:
-                        for tr in range(lo, min(hi, lo + MAX_RANGE_ROWS) + 1):
-                            all_edges.add((name, r, s, tr))
-                    for nm in names:
-                        for s, lo, hi in name_targets.get(nm.split("!")[-1].lower(), []):
-                            for tr in range(lo, min(hi, lo + MAX_RANGE_ROWS) + 1):
-                                all_edges.add((name, r, s, tr))
                 else:
                     n_const += 1
                 if first_text is None and isinstance(cv, str) and cv.strip():
@@ -311,23 +291,22 @@ def main(path: str, out: str | None = None, progress=None) -> dict:
 
     # keep only edges that land on a real line item, and drop self-loops
     report(0.96, "Indexing dependencies")
-    edges = [(a, b, c, d) for a, b, c, d in all_edges
-             if d in sheet_rows.get(c, ()) and (a, b) != (c, d)]
-    db.executemany("INSERT INTO edges VALUES (?,?,?,?)", edges)
     db.executescript("""
         CREATE INDEX ix_cells ON cells(sheet,row,col);
         CREATE INDEX ix_rows ON rows(sheet,row);
-        CREATE INDEX ix_e1 ON edges(src_sheet,src_row);
-        CREATE INDEX ix_e2 ON edges(dst_sheet,dst_row);
     """)
+    db.commit()
+    # Row-to-row edges with OFFSET resolved and lookups narrowed to the current scenario (edges.py).
+    import edges as edgemod
+    edge_stats = edgemod.build(db)
     db.commit()
 
     with open(os.path.join(out, "map.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     n_rows = sum(len(v) for v in sheet_rows.values())
-    print(f"{out}: line items={n_rows} edges={len(edges)} names={len(name_rows)} secs={time.time() - t0:.1f}")
+    print(f"{out}: line items={n_rows} edges={edge_stats['edges']} names={len(name_rows)} secs={time.time() - t0:.1f}")
     report(1.0, "Workbook database built")
-    return {"out": out, "db": db_path, "sheets": n_sheets, "line_items": n_rows, "edges": len(edges),
+    return {"out": out, "db": db_path, "sheets": n_sheets, "line_items": n_rows, "edges": edge_stats["edges"],
             "secs": round(time.time() - t0, 1)}
 
 
