@@ -209,9 +209,12 @@ def chart(title: str, series: list[dict], kind: str = "line", x_range: str | Non
             v = vals.get(p)
             data.append(v if isinstance(v, (int, float)) and not isinstance(v, bool) else None)
         row0 = pts[0][0]
-        lab = db.execute("SELECT label FROM rows WHERE sheet=? AND row=?", (sheet, row0)).fetchone()
-        name = s.get("name") or (lab[0] if lab and lab[0] and pts[0][0] == pts[-1][0] else s["range"])
-        out_series.append({"name": name, "range": s["range"], "data": data})
+        lab = db.execute("SELECT label, units FROM rows WHERE sheet=? AND row=?", (sheet, row0)).fetchone()
+        one_row = pts[0][0] == pts[-1][0]
+        name = s.get("name") or (lab[0] if lab and lab[0] and one_row else s["range"])
+        out_series.append({"name": name, "range": s["range"], "data": data,
+                           "label": lab[0] if lab and one_row else None,
+                           "units": lab[1] if lab and one_row else None})
         if labels is None:
             if x_range:
                 xs, xpts = _range_cells(db, x_range)
@@ -228,14 +231,28 @@ def chart(title: str, series: list[dict], kind: str = "line", x_range: str | Non
                 labels = [str(r) for r, _ in pts]
     n = max((len(s["data"]) for s in out_series), default=0)
     labels = (labels or [])[:n] + [""] * (n - len(labels or []))
-    return {"title": title, "kind": kind if kind in ("line", "bar") else "line", "units": units,
+    import chartdata
+    spec = {"title": title, "kind": kind if kind in ("line", "bar") else "line", "units": units,
             "labels": labels, "series": out_series}
+    return chartdata.enrich(spec, db)
+
+
+def chartdata_methods(a: dict) -> list[str]:
+    import chartdata
+    return [chartdata.METHOD_TEXT[m] for m in a["methods"]]
 
 
 def chart_note(spec: dict) -> str:
     """What the model is told after drawing: enough to describe the chart without re-reading every value."""
-    lines = [f"Chart shown to the user: '{spec['title']}', {len(spec['labels'])} points "
-             f"({spec['labels'][0] if spec['labels'] else ''} to {spec['labels'][-1] if spec['labels'] else ''})."]
+    shown = spec.get("period_labels") or spec["labels"]
+    lines = [f"Chart shown to the user: '{spec['title']}', {len(shown)} {spec.get('frequency', '')} points "
+             f"({shown[0] if shown else ''} to {shown[-1] if shown else ''}); values below are the workbook's."]
+    if spec.get("sign") == -1:
+        lines.append("All values are negative in the workbook, so the chart shows them as positive (labelled).")
+    if spec.get("annual"):
+        a = spec["annual"]
+        lines.append(f"The user can switch to annual figures by {a['basis']} "
+                     f"({', '.join(chartdata_methods(a))}); years marked * are partial.")
     for s in spec["series"]:
         nums = [v for v in s["data"] if v is not None]
         if nums:

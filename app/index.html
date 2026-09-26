@@ -167,6 +167,10 @@ textarea { flex: 1; resize: none; min-height: 44px; max-height: 180px; padding: 
 .chart-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
 .chart-tools button { background: none; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; color: var(--muted); }
 .chart-tools button:hover, .chart-tools button.on { color: var(--ink); border-color: var(--muted); }
+.chart-tools .seg { display: inline-flex; margin-right: 6px; }
+.chart-tools .seg button { border-radius: 0; margin-left: -1px; }
+.chart-tools .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.chart-tools .seg button:last-child { border-radius: 0 6px 6px 0; }
 .chart-tools .src { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
 .chart-note { font-size: 13px; color: var(--ink); margin: 8px 0 0; max-width: 75ch; }
 details.review { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
@@ -658,14 +662,38 @@ async function ask(text) {
 // ---------- charts ----------
 function newSession() { try { return crypto.randomUUID(); } catch (e) { return String(Date.now()) + Math.random(); } }
 const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+// What the chart shows for a mode: formatted period labels ("Sep-2017", "FY2018"), and every value multiplied
+// by spec.sign, which is -1 only when all values are negative (e.g. capex, shown as positive). Mirrors
+// bench/chartdata.py display(); the workbook values in spec.series are never changed.
+function shownData(spec, mode) {
+  const sign = spec.sign || 1, a = spec.annual, annual = mode === "annual" && a;
+  const labels = annual ? a.labels : (spec.period_labels || spec.labels);
+  const series = (annual ? a.series : spec.series).map(s => ({ name: s.name, method: s.method,
+    data: s.data.map(v => v == null ? null : v * sign + 0) }));
+  return { labels, series };
+}
+const FREQ_WORD = { monthly: "Monthly", quarterly: "Quarterly", "semi-annual": "Half-yearly", annual: "Annual" };
+const METHOD_WORD = { sum: "totals", last: "year-end values", first: "opening values", average: "averages" };
+function chartSubtitle(spec, mode) {
+  const units = spec.units && !/not\s+label/i.test(spec.units) ? esc(spec.units) : "Units not labelled";
+  const signNote = spec.sign === -1 ? " · negative values shown as positive" : "";
+  const d = shownData(spec, mode), n = d.labels.length;
+  const span = n ? ` · ${esc(d.labels[0])} to ${esc(d.labels[n - 1])}` : "";
+  if (mode === "annual" && spec.annual) {
+    const a = spec.annual, methods = [...new Set(a.series.map(s => METHOD_WORD[s.method]))].join(" / ");
+    return `${units}${signNote} · ${n} years: annual ${methods} by ${esc(a.basis)}${span}` +
+      (a.partial.some(Boolean) ? " · * partial year" : "");
+  }
+  return `${units}${signNote} · ${n} ${(FREQ_WORD[spec.frequency] || "").toLowerCase() || "points"}${n ? " periods" : ""}${span}`
+    .replace(" periods periods", " periods");
+}
 function chartCard(spec) {
   const card = document.createElement("div"); card.className = "chart-card";
   const refs = spec.series.map(s => `<span class="ref">${esc(s.range)}</span>`).join("");
-  const units = spec.units && !/not\s+label/i.test(spec.units) ? esc(spec.units) : "Units not labelled";
-  card.innerHTML = `<h4>${esc(spec.title)}</h4><div class="sub">${units} · ${spec.labels.length} periods
-      ${spec.labels.length ? `· ${esc(spec.labels[0])} to ${esc(spec.labels[spec.labels.length - 1])}` : ""}</div>
+  const modes = spec.annual ? `<span class="seg"><button type="button" data-mode="periodic">${FREQ_WORD[spec.frequency] || "Periodic"}</button><button type="button" data-mode="annual">Annual</button></span>` : "";
+  card.innerHTML = `<h4>${esc(spec.title)}</h4><div class="sub"></div>
     <div class="chart-box"><canvas role="img" aria-label="${esc(spec.title)}"></canvas></div>
-    <div class="chart-tools"><button type="button" data-kind="line">Line</button><button type="button" data-kind="bar">Bar</button>
+    <div class="chart-tools">${modes}<button type="button" data-kind="line">Line</button><button type="button" data-kind="bar">Bar</button>
       <button type="button" data-act="copy">Copy data</button><button type="button" data-act="reset">Full range</button>
       <span class="src">Source ${refs}</span></div>
     <div class="review-slot"></div>
@@ -676,47 +704,56 @@ function mountCharts(root) {
   root.querySelectorAll(".chart-card").forEach(card => {
     if (card._chart) return;
     const spec = card._spec = JSON.parse(card.querySelector('script[type="application/json"]').textContent);
+    card._mode = spec.mode || "periodic";
     const draw = card._draw = (kind, useView = true) => {
       card._chart?.destroy();
+      const mode = card._mode, d = shownData(spec, mode);
       const ink = tok("--ink"), muted = tok("--muted"), rule = tok("--rule");
       const fmt = v => v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) < 10 ? 4 : 1 });
       card._chart = new Chart(card.querySelector("canvas"), {
         type: kind,
-        data: { labels: spec.labels, datasets: spec.series.map((s, i) => {
+        data: { labels: d.labels, datasets: d.series.map((s, i) => {
           const c = tok(`--s${(i % 6) + 1}`);
           return { label: s.name, data: s.data, borderColor: c, backgroundColor: kind === "bar" ? c : c + "22",
-            borderWidth: 2, pointRadius: spec.labels.length > 60 ? 0 : 2.5, pointHoverRadius: 4, tension: 0,
+            borderWidth: 2, pointRadius: d.labels.length > 60 ? 0 : 2.5, pointHoverRadius: 4, tension: 0,
             fill: false, spanGaps: true };
         }) },
         options: { responsive: true, maintainAspectRatio: false, animation: false,
           interaction: { mode: "index", intersect: false },
-          plugins: { legend: { display: spec.series.length > 1, labels: { color: ink, boxWidth: 12 } },
-            tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.raw)}${spec.units ? " " + spec.units : ""}` } } },
+          plugins: { legend: { display: d.series.length > 1, labels: { color: ink, boxWidth: 12 } },
+            tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.raw)}${spec.units && !/not\s+label/i.test(spec.units) ? " " + spec.units : ""}` } } },
           scales: { x: { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false }, border: { color: rule } },
                     y: { ticks: { color: muted, callback: v => Number(v).toLocaleString() }, grid: { color: rule }, border: { display: false } } },
           onClick: (evt, els, chart) => zoomTo(chart, els) } });
-      const v = useView && spec.view;  // framing chosen by the chart review (data unchanged)
+      // Framing chosen by the chart review (data unchanged). Its period window maps to financial years in
+      // the annual view; its y-axis limits are for periodic values only.
+      const v = useView && spec.view;
       if (v) {
-        const o = card._chart.options.scales;
-        if (v.x_start != null) o.x.min = v.x_start;
-        if (v.x_end != null) o.x.max = v.x_end;
-        if (v.y_min != null) o.y.min = v.y_min;
-        if (v.y_max != null) o.y.max = v.y_max;
+        const o = card._chart.options.scales, py = spec.annual?.period_year;
+        const annual = mode === "annual" && py;
+        // In the annual view, keep a year only if the window covers all of its periods
+        if (v.x_start != null) o.x.min = !annual ? v.x_start : py[v.x_start] + (py[v.x_start - 1] === py[v.x_start] ? 1 : 0);
+        if (v.x_end != null) o.x.max = !annual ? v.x_end : py[v.x_end] - (py[v.x_end + 1] === py[v.x_end] ? 1 : 0);
+        if (mode !== "annual") { if (v.y_min != null) o.y.min = v.y_min; if (v.y_max != null) o.y.max = v.y_max; }
         card._chart.update();
       }
-      spec.kind = kind;
+      spec.kind = kind; spec.mode = mode;
+      card.querySelector(".sub").innerHTML = chartSubtitle(spec, mode);
       card.querySelectorAll("[data-kind]").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+      card.querySelectorAll("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
     };
     renderReview(card);
-    // Click a point to zoom into the 20 periods around it; Reset zoom goes back to the full range.
+    // Click a point to zoom into the 20 periods around it; Full range goes back to everything.
     function zoomTo(chart, els) {
-      if (!els.length) return; const i = els[0].index, n = spec.labels.length;
+      if (!els.length) return; const i = els[0].index, n = chart.data.labels.length;
       chart.options.scales.x.min = Math.max(0, i - 10); chart.options.scales.x.max = Math.min(n - 1, i + 10); chart.update();
     }
     card.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => draw(b.dataset.kind));
+    card.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { card._mode = b.dataset.mode; draw(spec.kind || "line"); });
     card.querySelector('[data-act="reset"]').onclick = () => draw(spec.kind || "line", false);
     card.querySelector('[data-act="copy"]').onclick = e => {
-      const rows = [["Period", ...spec.series.map(s => s.name)], ...spec.labels.map((l, i) => [l, ...spec.series.map(s => s.data[i] ?? "")])];
+      const d = shownData(spec, card._mode), flip = spec.sign === -1 ? " (shown as positive)" : "";
+      const rows = [["Period", ...d.series.map(s => s.name + flip)], ...d.labels.map((l, i) => [l, ...d.series.map(s => s.data[i] ?? "")])];
       copyText(rows.map(r => r.join("\t")).join("\n"), e.currentTarget, card);
     };
     draw(spec.kind || "line");

@@ -13,8 +13,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 COLOURS = ["#1d6b47", "#3f6fb0", "#b7791f", "#9b4d8f", "#2f8f8f", "#a33a22"]
 
 
-def render_png(spec: dict, view: dict | None = None, width_px: int = 1200, height_px: int = 560) -> bytes:
-    labels, series = spec.get("labels", []), spec.get("series", [])
+def render_png(spec: dict, view: dict | None = None, width_px: int = 1200, height_px: int = 560,
+               mode: str = "periodic") -> bytes:
+    from chartdata import display
+    shown = display(spec, mode)  # formatted period labels, sign presentation applied
+    labels, series = shown["labels"], shown["series"]
     n = len(labels)
     fig, ax = plt.subplots(figsize=(width_px / 100, height_px / 100), dpi=100)
     xs = list(range(n))
@@ -29,10 +32,12 @@ def render_png(spec: dict, view: dict | None = None, width_px: int = 1200, heigh
             ax.plot(xs, ys, color=c, linewidth=1.8, label=s.get("name"), marker="o" if n <= 60 else None, markersize=3)
     ax.set_title(spec.get("title") or "", loc="left", fontsize=13, fontweight="bold")
     units = spec.get("units") or "units not labelled"
+    if spec.get("sign") == -1:
+        units += " (negative values shown as positive)"
     ax.set_ylabel(units, fontsize=9, color="#5d6a64")
     step = max(1, n // 10)
     ax.set_xticks(xs[::step])
-    ax.set_xticklabels([str(labels[i])[:10] for i in xs[::step]], fontsize=8, color="#5d6a64")
+    ax.set_xticklabels([str(labels[i]) for i in xs[::step]], fontsize=8, color="#5d6a64")
     ax.tick_params(axis="y", labelsize=8, colors="#5d6a64")
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:,.0f}" if abs(v) >= 10 else f"{v:,.3g}"))
     ax.grid(axis="y", color="#d8ded9", linewidth=0.8)

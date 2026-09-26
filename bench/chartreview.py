@@ -54,23 +54,30 @@ SCHEMA = {"type": "json_schema", "name": "chart_review", "strict": True, "schema
 
 
 def summarize(spec: dict) -> dict:
-    """What the reviewer needs to know about the data, exactly (it can't read numbers off pixels reliably)."""
+    """What the reviewer needs to know about the data as shown (sign presentation applied), exactly: it can't
+    read numbers off pixels reliably."""
+    from chartdata import display
+    shown = display(spec)
+    labs = shown["labels"]
     out = {"title": spec.get("title"), "units": spec.get("units"), "kind": spec.get("kind"),
-           "periods": len(spec.get("labels", [])), "first_label": (spec.get("labels") or [None])[0],
-           "last_label": (spec.get("labels") or [None])[-1], "series": []}
-    for s in spec.get("series", []):
+           "frequency": spec.get("frequency"), "periods": len(labs),
+           "first_label": (labs or [None])[0], "last_label": (labs or [None])[-1],
+           "sign_presentation": ("all values are negative in the workbook and are shown as positive"
+                                 if spec.get("sign") == -1 else "values shown with their workbook signs"),
+           "series": []}
+    for s in shown["series"]:
         vals = [(i, v) for i, v in enumerate(s.get("data", [])) if isinstance(v, (int, float))]
         nz = [(i, v) for i, v in vals if v]
         if not vals:
-            out["series"].append({"name": s.get("name"), "range": s.get("range"), "numeric_points": 0})
+            out["series"].append({"name": s.get("name"), "numeric_points": 0})
             continue
         top = sorted(vals, key=lambda iv: -abs(iv[1]))[:3]
         rest = [v for i, v in vals if i != top[0][0]]
         out["series"].append({
-            "name": s.get("name"), "range": s.get("range"), "numeric_points": len(vals),
+            "name": s.get("name"), "numeric_points": len(vals),
             "min": min(v for _, v in vals), "max": max(v for _, v in vals),
             "first_nonzero_index": nz[0][0] if nz else None, "last_nonzero_index": nz[-1][0] if nz else None,
-            "largest_abs": [{"index": i, "label": spec["labels"][i], "value": round(v, 2)} for i, v in top],
+            "largest_abs": [{"index": i, "label": labs[i], "value": round(v, 2)} for i, v in top],
             "largest_vs_next_largest": round(abs(top[0][1]) / abs(top[1][1]), 1) if len(top) > 1 and top[1][1] else None,
             "leading_empty_periods": nz[0][0] if nz else len(s.get("data", [])),
             "trailing_empty_periods": (len(s.get("data", [])) - 1 - nz[-1][0]) if nz else len(s.get("data", [])),
@@ -149,7 +156,9 @@ def _fix_title_years(spec: dict) -> str:
     """If the title names years outside what's visible (e.g. "2017-2070" while the view ends in 2067),
     replace them with the visible range. Reviewers get this wrong often enough to check it in code."""
     import re
-    title, labels, v = spec.get("title") or "", spec.get("labels") or [], spec.get("view") or {}
+    title, v = spec.get("title") or "", spec.get("view") or {}
+    labels = [re.sub(r"^[A-Za-z]{3}-", "", str(x)) + "-01-01" if re.match(r"^[A-Za-z]{3}-\d{4}$", str(x)) else x
+              for x in (spec.get("period_labels") or spec.get("labels") or [])]
     years = [int(y) for y in re.findall(r"\b(19\d{2}|20\d{2})\b", title)]
     shown = [int(m.group(1)) for lab in labels[v.get("x_start", 0):(v.get("x_end", len(labels) - 1)) + 1]
              if (m := re.match(r"(\d{4})", str(lab)))]
@@ -176,7 +185,7 @@ def describe(spec: dict) -> str:
         return "A reviewer checked the chart and made no changes."
     bits = []
     if "x_start" in v or "x_end" in v:
-        lab = spec["labels"]
+        lab = spec.get("period_labels") or spec["labels"]
         bits.append(f"shows periods {lab[v.get('x_start', 0)]} to {lab[v.get('x_end', len(lab) - 1)]} by default")
     if "y_min" in v or "y_max" in v:
         bits.append(f"y-axis limited to {v.get('y_min', 'auto')}..{v.get('y_max', 'auto')}")

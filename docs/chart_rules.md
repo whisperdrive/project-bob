@@ -9,6 +9,18 @@ change.
 note under the chart. **What it can't change:** the numbers, which series are shown, colours, or number
 formats. If a rule needs something outside that list, the reviewer reports it as an issue and leaves it.
 
+## P. Presentation applied automatically (don't change or flag these)
+The app applies these before the review; the data summary tells you which apply.
+- **P1 Period labels.** Monthly and quarterly periods are labelled by their end month, MMM-YYYY
+  ("Sep-2017"); annual periods by year, "FY2018" when the model's financial year doesn't end in December.
+- **P2 Signs.** If every value on the chart is negative (e.g. capex), values are shown as positive and the
+  chart says so. If positives and negatives are mixed (e.g. sources and uses of funds), signs are kept, so
+  negatives read in context with the positives.
+- **P3 Periodic or annual.** The viewer can switch between the model's own periods and annual figures by
+  financial year: flows are summed, balances taken at year end (opening balances at the start), rates,
+  percentages and indices averaged; partial years are marked *. You review the periodic view; your visible
+  range carries over to whole years in the annual view, your y-axis limits don't.
+
 ## A. Accuracy (always applies)
 - **A1 Data is never altered.** The chart shows the workbook's values. Framing may hide some periods or cut
   the y-axis, but never changes a value.
