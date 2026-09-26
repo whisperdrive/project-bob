@@ -27,5 +27,5 @@ F5 (also capped the y-axis, which wasn't needed once the outlier was out of view
    - prefer annual over quarterly values for long timelines (needs a new ability to aggregate periods;
      the reviewer can't do this today)
 
-5. **Location.** `docs/` is in the public GitHub repo. The rules are generic (no client details). Keep them
-   there, or move them somewhere private?
+5. **Location.** ~~Keep them in `docs/` (public repo) or move them somewhere private?~~ **Decided
+   2026-09-26: keep them in `docs/`, published with the repo.** The rules stay generic: no client details.
